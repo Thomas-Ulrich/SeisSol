@@ -41,12 +41,35 @@
 
 # build options
 compileMode                 = 'release'
+#compileMode                 = 'relWithDebInfo'
+#compileMode                 = 'debug'
 parallelization             = 'hybrid'
+#parallelization             = 'mpi'
 generatedKernels            = 'yes'
 measureNodeLevelPerformance = 'none'
 useExecutionEnvironment     = 'yes'
+order = 3
+equations='elastic'
+# machine dependent options
+cppCompiler          = 'mpiCC'
+fortranCompiler      = 'mpif90'
+
+netcdf='yes'
+hdf5='yes'
+
+netcdfDir='/lrz/sys/libraries/netcdf/4.3.3/intel/ibmmpi_poe1.4_1505'
+hdf5Dir='/lrz/sys/libraries/hdf5/1.8.14/ibmmpi_poe1.4_15.0.5'
+
+
+phase=1
+if phase==1:
+   arch = 'dsnb'
+else:
+   arch = 'dhsw'
+   #commThread ='yes'
+
+plasticity='yes'
+
+#logLevel                    = 'warning'
 logLevel                    = 'warning'
 logLevel0                   = 'info'
-
-# machine dependent options (SNB-EP, Bulldozer)
-arch = 'dhsw'
