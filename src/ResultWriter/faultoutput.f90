@@ -276,10 +276,6 @@ CONTAINS
     REAL, ALLOCATABLE  :: projected_RT(:)
     REAL    :: x,y,z,uz(1:3)                          !
 
-#ifndef GENERATEDKERNELS
-    REAL, POINTER     :: DOFiElem_ptr(:,:)  => NULL()                         ! Actual dof
-    REAL, POINTER     :: DOFiNeigh_ptr(:,:) => NULL()                         ! Actual dof
-#else
     real, dimension( NUMBER_OF_BASIS_FUNCTIONS, NUMBER_OF_QUANTITIES ) :: DOFiElem_ptr ! no: it's not a pointer..
     real, dimension( NUMBER_OF_BASIS_FUNCTIONS, NUMBER_OF_QUANTITIES ) :: DOFiNeigh_ptr ! no pointer again
     !-------------------------------------------------------------------------!

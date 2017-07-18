@@ -3749,7 +3749,7 @@ MODULE ini_model_DR_mod
       ! switch for rupture front output: RF
       IF (DISC%DynRup%RF_output_on == 1) THEN
           ! rupture front output just for + side elements!
-          IF (MESH%FAULT%Face(i,1,1) .NE. 0) DISC%DynRup%RF(i,:) = .TRUE.
+          IF (MESH%FAULT%Face(i,1,1) .NE. 0) DISC%DynRup%RF(:,i) = .TRUE.
       ENDIF
       
       ! element ID    
@@ -3878,6 +3878,7 @@ MODULE ini_model_DR_mod
   real                           :: tangent2(3)
   real                           :: T(9,9)
   real                           :: iT(9,9)
+  real                           :: xR1,xR2,yR1,yR2,alpha
 
   REAL, PARAMETER                :: pi = 3.141592653589793d0
   !-------------------------------------------------------------------------! 
@@ -3924,12 +3925,14 @@ MODULE ini_model_DR_mod
   DISC%DynRup%NucBulk_zz_0  =  DISC%DynRup%NucBulk_zz_0 + Pf
 
   ! velocity weakening to strengthening at shallow depth
-  zADecreaseStart = -1.5e3
-  zADecreaseStop = -2.5e3
+  !zADecreaseStart = -1.5e3
+  !zADecreaseStop = -2.5e3
+  zADecreaseStart = 1.5e3
+  zADecreaseStop = -4.0e3
   zADecreaseWidth = zADecreaseStart-zADecreaseStop
-  !RS_a_inc = 0.01d0
-  !RS_srW_inc = 0.9d0
-  RS_a_inc = 0.0
+  RS_a_inc = 0.01d0
+  !RS_srW_inc = 0.5d0
+  !RS_a_inc = 0.0
   RS_srW_inc = 0.0
 
   !less Stress at shallow depth, then increase to peak R at seismogenic depth (stress concentrations), 
@@ -3952,7 +3955,7 @@ MODULE ini_model_DR_mod
       ! switch for rupture front output: RF
       IF (DISC%DynRup%RF_output_on == 1) THEN
           ! rupture front output just for + side elements!
-          IF (MESH%FAULT%Face(i,1,1) .NE. 0) DISC%DynRup%RF(i,:) = .TRUE.
+          IF (MESH%FAULT%Face(i,1,1) .NE. 0) DISC%DynRup%RF(:,i) = .TRUE.
       ENDIF
       
       ! element ID    
@@ -4048,8 +4051,21 @@ MODULE ini_model_DR_mod
           ENDIF
           ENDIF
           
+             xR1=6.22e6
+             yR1=-3.88e6
+             xR2=6.236e6
+             yR2=-3.87e6
+             xR2=xR1+15e3
+             yR2=yR1+15e3
 
-
+             IF ((yGP-yR1).LT.(-xGP+XR1)) THEN
+                !do nothing
+             ELSE IF ((yGP-yR2).LT.(-xGP+XR2)) THEN
+                alpha = ((yGP+xGP)-(yR1+xR1))/((yR2+xR2)-(yR1+xR1))
+                Rz = Rz /(1d0+3d0*alpha) 
+             ELSE 
+                Rz = Rz/4d0
+             ENDIF
 
           CALL STRESS_STR_DIP_SLIP_AM(DISC,EQN%Bulk_yy_0, EQN%Bulk_zz_0, sigmazz, 0.0e6, EQN%Bulk_xx_0*Rz, .False., EQN%ShearXY_0, bii)
           bii = bii/bii(3)
@@ -4075,7 +4091,8 @@ MODULE ini_model_DR_mod
              Rz = 1d0
           ELSE IF (zGP.GE.zADecreaseStop) THEN
              x = (zGP-zADecreaseStop)/zADecreaseWidth
-             Rz = (3d0*x**2-2d0*x**3)
+             !Rz = (3d0*x**2-2d0*x**3)
+             Rz = x
           ELSE
              Rz=0d0
           ENDIF

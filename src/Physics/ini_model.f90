@@ -1682,13 +1682,16 @@ CONTAINS
             ELSE IF ((zGP.LT.zStressIncreaseStart).AND.(zGP.GE.zStressIncreaseStop)) THEN
                 x = 1-(zGP-zStressIncreaseStop)/zStressIncreaseWidth
                 Sx = (3d0*x**2-2d0*x**3)
-                Rz = ratioRtopo + (1d0-ratioRtopo)*Sx
+                !Rz = ratioRtopo + (1d0-ratioRtopo)*Sx
+                Rz = ratioRtopo 
             ELSE IF (zGP.GE.zStressDecreaseStart) THEN
-                Rz = 1d0
+                !Rz = 1d0
+                Rz = ratioRtopo 
             ELSE IF (zGP.GE.zStressDecreaseStop) THEN
                 x = 1d0-(zGP-zStressDecreaseStop)/zStressDecreaseWidth
                 Sx = (3d0*x**2-2d0*x**3)
-                Rz = 1d0-Sx
+                !Rz = 1d0-Sx
+                Rz = ratioRtopo*(1d0-Sx)
             ELSE
                 Rz=0d0
             ENDIF
@@ -1703,7 +1706,7 @@ CONTAINS
             P0 = 2670d0*g*min(zGP,-1500d0)
 
           radius=SQRT((xGP-DISC%DynRup%XHypo)**2+(yGP-DISC%DynRup%YHypo)**2+(zGP-DISC%DynRup%ZHypo)**2)
-          IF (radius.LT.DISC%DynRup%R_crit) THEN
+          IF (radius.LT.2d0*DISC%DynRup%R_crit) THEN
              EQN%PlastCo(iElem) = 1e20
           ENDIF
 
