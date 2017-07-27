@@ -265,6 +265,7 @@ CONTAINS
     REAL    :: NorDivisor,ShearDivisor,UVelDivisor
     REAL    :: strike_vector(1:3), dip_vector(1:3), crossprod(1:3) !for rotation of Slip from local to strike, dip coordinate
     REAL    :: cos1, sin1, scalarprod
+    REAL    :: Tnuc, eta, Gnuc
     REAL, PARAMETER    :: ZERO = 0.0D0
     ! Parameters used for calculating Vr
     LOGICAL :: compute_Vr
@@ -390,9 +391,23 @@ CONTAINS
           MuVal = DISC%DynRup%output_Mu(iBndGP,iFace)
           LocSV = DISC%DynRup%output_StateVar(iFace, iBndGP) ! load state variable of RS for output
           cohesion  = DISC%DynRup%cohesion(iBndGP,iFace)
+
           S_XY  = Stress(4)
           S_XZ  = Stress(6)
           P_0   = Stress(1)
+
+          if (EQN%FL.eq.33) then
+             !case of StrikeFromSlip 'friction law': we add the added stress to the fault output
+             Tnuc = DISC%DynRup%t_0
+             eta = (w_speed(2)*rho*w_speed_neig(2)*rho_neig) / (w_speed(2)*rho + w_speed_neig(2)*rho_neig)
+             IF (time.LE.Tnuc) THEN
+                Gnuc = EXP((time-Tnuc)**2/(time*(time-2.0D0*Tnuc)))
+             else
+                Gnuc=1d0
+             endif
+             S_XY = S_XY + eta * EQN%NucleationStressInFaultCS(0,1,iFace)*Gnuc
+             S_XZ = S_XZ + eta * EQN%NucleationStressInFaultCS(0,2,iFace)*Gnuc
+          endif
           !
           ! Obtain values at output points
           SideVal  = 0.

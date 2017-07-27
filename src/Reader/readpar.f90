@@ -656,7 +656,7 @@ CONTAINS
       logInfo0(*) 'No material property zones are defined. '
       logInfo0(*) 'Material properties are read from file : ', TRIM(EQN%MaterialFileName)
       !
-  CASE(122,123, 1221,1222,1223, 1225, 1226, 1227) ! SUMATRA T Ulrich 16.02.2016
+  CASE(122,123, 124, 1221,1222,1223, 1225, 1226, 1227) ! SUMATRA T Ulrich 16.02.2016
       !
       logInfo(*) 'Material property zones are defined by SeisSol. '
 
@@ -1738,7 +1738,7 @@ CONTAINS
            !BACKGROUND VALUES
            DISC%DynRup%BackgroundType = BackgroundType
            SELECT CASE(DISC%DynRup%BackgroundType)
-           CASE(0,1,2,3,4,5,7,10,11,12,13,14,15,26,29,31,32,33,35,50,60,61,62,70,100,101,103,119,1191,121,122,123,120,1201,1202)
+           CASE(0,1,2,3,4,5,7,10,11,12,13,14,15,26,29,31,32,33,35,50,60,61,62,70,100,101,103,119,1191,121,122,123,124,120,1201,1202)
              EQN%Bulk_xx_0 = Bulk_xx_0
              EQN%Bulk_yy_0 = Bulk_yy_0
              EQN%Bulk_zz_0 = Bulk_zz_0
@@ -1827,7 +1827,7 @@ CONTAINS
              ! all parameters are defined in input file of INITIAL VALUES
              DISC%DynRup%inst_healing = 0
              CONTINUE
-           CASE(30,302) !LSW with a smoothed rupture in a circular patch, used for example in TPV29/TPV30 and TPV26/TPV27
+           CASE(30,302,33) !LSW with a smoothed rupture in a circular patch, used for example in TPV29/TPV30 and TPV26/TPV27
              DISC%DynRup%Mu_D_ini = Mu_D_ini
              DISC%DynRup%Mu_S_ini = Mu_S_ini
              DISC%DynRup%D_C_ini  = D_C_ini

@@ -243,6 +243,8 @@ MODULE ini_model_DR_mod
        CALL background_NZKaikoura(DISC,EQN,MESH,BND)
     CASE(123)
        CALL background_NZKaikoura_RS(DISC,EQN,MESH,BND)
+    CASE(124)
+       CALL background_NZKaikoura_StressFromSlip(DISC,EQN,MESH,BND)
     CASE(1201)
        CALL background_SUMATRA_GEO(DISC,EQN,MESH,BND)
     CASE(1202)
@@ -3899,7 +3901,7 @@ MODULE ini_model_DR_mod
    modulate_R_by_Slip = 0
    If (modulate_R_by_Slip.EQ.1) THEN
    
-   call  checkNcError(nf90_open('InvertedSlip_NZfinerfault_OF-dtc1-v2_dev.32.nc', NF90_NOWRITE, ncid))
+   call  checkNcError(nf90_open('InvertedSlipSmooth_NZfinerfault_OF-dtc1-v2_dev.32.nc', NF90_NOWRITE, ncid))
    !read description
    call checkNcError(nf90_get_att(ncid, nf90_global, 'description', desc))
    logError(*) desc
@@ -3914,6 +3916,9 @@ MODULE ini_model_DR_mod
    ALLOCATE(StrikeSlip(nElements, nPartitions))
    ALLOCATE(DipSlip(nElements, nPartitions))
    ALLOCATE(nFaces(nPartitions))
+   StrikeSlip(:,:)=0d0
+   DipSlip(:,:)=0d0
+   nFaces(:)=0
 
    call  checkNcError(nf90_inq_varid(ncid, "StrikeSlip", varid))
    call  checkNcError(nf90_get_var(ncid, varid, StrikeSlip))
@@ -4149,6 +4154,180 @@ MODULE ini_model_DR_mod
   !logError(*) 'check',inetcdf, nFaces(myrank+1), MESH%Fault%nSide              
   END SUBROUTINE background_NZKaikoura_RS
 
+  SUBROUTINE background_NZKaikoura_StressFromSlip (DISC,EQN,MESH,BND)
+  !-------------------------------------------------------------------------!
+  USE DGBasis_mod
+  use JacobiNormal_mod, only: RotationMatrix3D
+  USE common_operators_mod
+  USE netcdf
+  !-------------------------------------------------------------------------!
+  IMPLICIT NONE
+  !-------------------------------------------------------------------------!
+  TYPE(tDiscretization), target  :: DISC
+  TYPE(tEquations)               :: EQN
+  TYPE(tUnstructMesh)            :: MESH
+  TYPE (tBoundary)               :: BND
+  !-------------------------------------------------------------------------!
+  ! Local variable declaration
+  INTEGER                        :: i,j
+  INTEGER                        :: iSide,iElem,iBndGP
+  INTEGER                        :: iLocalNeighborSide,iNeighbor
+  INTEGER                        :: MPIIndex, iObject
+  INTEGER                        :: nPartitions,nElements, ncid, dimid, varid
+  REAL                           :: xV(MESH%GlobalVrtxType),yV(MESH%GlobalVrtxType),zV(MESH%GlobalVrtxType)
+  REAL                           :: chi,tau
+  REAL                           :: xi, eta, zeta, XGp, YGp, ZGp, Phi
+  REAL                           :: b11, b22, b33, b12, b13, b23, bii(6), Omega, g, P,Pf, zIncreasingCohesion, zSeismogenicDepth, Rx, Ry, Rz,sigmazz
+  REAL                           :: zStressIncreaseStart,zStressIncreaseStop,zStressIncreaseWidth,zStressDecreaseStart,zStressDecreaseStop,zStressDecreaseWidth,ratioRtopo,x,Sx
+  REAL                           :: zADecreaseStart,zADecreaseStop,zADecreaseWidth, RS_a_inc,RS_srW_inc
+  REAL                           :: r_crit,hypox,hypoy,hypoz
+  REAL                           :: Rnuc, radius, ShapeNucleation
+  real                           :: normal(3)
+  real                           :: tangent1(3)
+  real                           :: tangent2(3)
+  real                           :: dip_vector(3),strike_vector(3), crossprod(3)
+  real                           :: NormalVect_n(3), NormalVect_s(3), NormalVect_t(3)
+  real                           :: T(9,9)
+  real                           :: iT(9,9)
+  REAL                           :: cos1, sin1, scalarprod
+  REAL, ALLOCATABLE              :: StrikeSlip(:,:), DipSlip(:,:)
+  REAL, ALLOCATABLE              :: elementBarycenter(:,:)
+  INTEGER                        :: nElements_dimid,n3d_dimid,dimids(2)
+  INTEGER, ALLOCATABLE           :: nFaces(:)
+  character (8)                  :: smyrank
+  character (200)                :: dimname, desc
+
+  REAL, PARAMETER                :: pi = 3.141592653589793d0
+  !-------------------------------------------------------------------------! 
+  INTENT(IN)    :: MESH, BND 
+  INTENT(INOUT) :: DISC,EQN
+  !-------------------------------------------------------------------------! 
+  ! TPV29
+  ! stress is assigned to each Gaussian node
+  ! depth dependent stress function (gravity)
+  ! NOTE: z negative is depth, free surface is at z=0
+  !for conveniently changing the stress level in the PARAMETER file
+ 
+  !1. Write the barycenter of the element in a netcdf file
+  !This data will then be post processed using python script
+  !and a new netcdf file containing the projected strike and dip slip the will be created
+  allocate(elementBarycenter(MESH%Fault%nSide,3))
+  DO i = 1, MESH%Fault%nSide
+           
+      ! element ID    
+      iElem = MESH%Fault%Face(i,1,1)
+      iSide = MESH%Fault%Face(i,2,1)  
+            
+      ! Gauss node coordinate definition and stress assignment
+      ! get vertices of complete tet
+      IF (MESH%Fault%Face(i,1,1) == 0) THEN
+          ! iElem is in the neighbor domain
+          ! The neighbor element belongs to a different MPI domain
+          iNeighbor           = MESH%Fault%Face(i,1,2)          ! iNeighbor denotes "-" side
+          iLocalNeighborSide  = MESH%Fault%Face(i,2,2)
+          iObject  = MESH%ELEM%BoundaryToObject(iLocalNeighborSide,iNeighbor)
+          MPIIndex = MESH%ELEM%MPINumber(iLocalNeighborSide,iNeighbor)
+          !
+          xV(1:4) = BND%ObjMPI(iObject)%NeighborCoords(1,1:4,MPIIndex)
+          yV(1:4) = BND%ObjMPI(iObject)%NeighborCoords(2,1:4,MPIIndex)
+          zV(1:4) = BND%ObjMPI(iObject)%NeighborCoords(3,1:4,MPIIndex)
+          !iSide = iLocalNeighborSide
+      ELSE
+          !
+          ! get vertices
+          xV(1:4) = MESH%VRTX%xyNode(1,MESH%ELEM%Vertex(1:4,iElem))
+          yV(1:4) = MESH%VRTX%xyNode(2,MESH%ELEM%Vertex(1:4,iElem))
+          zV(1:4) = MESH%VRTX%xyNode(3,MESH%ELEM%Vertex(1:4,iElem))
+      ENDIF
+      CALL TrafoChiTau2XiEtaZeta(xi,eta,zeta,1d0/3d0,1d0/3d0,iSide,0)
+      CALL TetraTrafoXiEtaZeta2XYZ(xGP,yGP,zGP,xi,eta,zeta,xV,yV,zV)
+      elementBarycenter(i,1) = xGP
+      elementBarycenter(i,2) = yGP
+      elementBarycenter(i,3) = zGP
+  ENDDO
+
+   write(smyrank,"(I5.5)") myrank
+   call  checkNcError(nf90_create('./faultGeomFromSeisSol'//TRIM(smyrank)//'.nc', NF90_CLOBBER, ncid))
+   call  checkNcError(nf90_def_dim(ncid, "nElements", MESH%Fault%nSide, nElements_dimid))
+   call  checkNcError(nf90_def_dim(ncid, "n3d", 3, n3d_dimid))
+   dimids =  (/ nElements_dimid, n3d_dimid /)
+   call  checkNcError(nf90_def_var(ncid, "elementBarycenter", NF90_DOUBLE , dimids, varid))
+   call checkNcError( nf90_enddef(ncid))
+   call  checkNcError(nf90_put_var(ncid, varid, elementBarycenter))
+   call checkNcError( nf90_close(ncid) )
+
+   !2. Read the projected data from the python scripts 
+   
+   call  checkNcError(nf90_open('InvertedSlip_NZfinerfault_OF-dtc1-v2_dev.32.nc', NF90_NOWRITE, ncid))
+   !read description
+   call checkNcError(nf90_get_att(ncid, nf90_global, 'description', desc))
+   logError(*) desc
+   ! Get the varid of the data variable, based on its name, and read the data
+   call  checkNcError(nf90_inq_dimid(ncid, "nPartitions", dimid))
+   call  checkNcError(nf90_inquire_dimension(ncid, dimid, dimname, nPartitions))
+   call  checkNcError(nf90_inq_dimid(ncid, "nElements", dimid))
+   call  checkNcError(nf90_inquire_dimension(ncid, dimid, dimname, nElements))
+   logError(*) 'nPartitions,nElements', nPartitions, nElements
+
+   !dimensions in fortran are inverted
+   ALLOCATE(StrikeSlip(nElements, nPartitions))
+   ALLOCATE(DipSlip(nElements, nPartitions))
+   ALLOCATE(nFaces(nPartitions))
+   StrikeSlip(:,:)=0d0
+   DipSlip(:,:)=0d0
+   nFaces(:)=0
+
+   call  checkNcError(nf90_inq_varid(ncid, "StrikeSlip", varid))
+   call  checkNcError(nf90_get_var(ncid, varid, StrikeSlip))
+   call  checkNcError(nf90_inq_varid(ncid, "DipSlip", varid))
+   call  checkNcError(nf90_get_var(ncid, varid, DipSlip))
+   call  checkNcError(nf90_inq_varid(ncid, "nFaces", varid))
+   call  checkNcError(nf90_get_var(ncid, varid, nFaces))
+   if (nFaces(myrank+1).NE.MESH%Fault%nSide) THEN
+      logError(*) 'netcdf data and mesh do not agree', nFaces(myrank+1), MESH%Fault%nSide
+   ENDIF
+   !logError(*) 'StrikeSlip, DipSlip', StrikeSlip(100,10), DipSlip(100,10)
+
+  allocate(EQN%NucleationStressInFaultCS(DISC%Galerkin%nBndGP,2,MESH%Fault%nSide))
+
+  DO i = 1, MESH%Fault%nSide
+
+      EQN%IniBulk_xx(i,:)  =  EQN%Bulk_xx_0
+      EQN%IniBulk_yy(i,:)  =  EQN%Bulk_yy_0
+      EQN%IniBulk_zz(i,:)  =  EQN%Bulk_zz_0
+      EQN%IniShearXY(i,:)  =  EQN%ShearXY_0
+      EQN%IniShearYZ(i,:)  =  EQN%ShearYZ_0
+      EQN%IniShearXZ(i,:)  =  EQN%ShearXZ_0
+
+         !Rotate nucleation stress in fault CS
+         ! n,strike,dip -> XYZ -> fault CS
+          NormalVect_n = MESH%Fault%geoNormals(1:3,i)
+          NormalVect_s = MESH%Fault%geoTangent1(1:3,i)
+          NormalVect_t = MESH%Fault%geoTangent2(1:3,i)
+ 
+          strike_vector(1) = NormalVect_n(2)/sqrt(NormalVect_n(1)**2+NormalVect_n(2)**2)
+          strike_vector(2) = -NormalVect_n(1)/sqrt(NormalVect_n(1)**2+NormalVect_n(2)**2)
+          strike_vector(3) = 0.0D0
+          dip_vector = NormalVect_n .x. strike_vector
+          dip_vector = dip_vector / sqrt(dip_vector(1)**2+dip_vector(2)**2+dip_vector(3)**2)
+
+          cos1 = dot_product(strike_vector(:),NormalVect_s(:))
+          crossprod(:) = strike_vector(:) .x. NormalVect_s(:)
+          scalarprod = dot_product(crossprod(:),NormalVect_n(:))
+          !TU 2.11.15 :cos1**2 can be greater than 1 because of rounding errors -> min
+          IF (scalarprod.GT.0) THEN
+             sin1=sqrt(1-min(1d0,cos1**2))
+          ELSE
+             sin1=-sqrt(1-min(1d0,cos1**2))
+          ENDIF
+          !Us
+          EQN%NucleationStressInFaultCS(:,1,i) = cos1 * StrikeSlip(i,myrank+1) + sin1* DipSlip(i,myrank+1)
+          !Ut
+          EQN%NucleationStressInFaultCS(:,2,i) =  -sin1 * StrikeSlip(i,myrank+1) + cos1* DipSlip(i,myrank+1)
+  ENDDO !    MESH%Fault%nSide
+  DISC%DynRup%cohesion = -1e40
+                   
+  END SUBROUTINE background_NZKaikoura_StressFromSlip
 
   !> SCEC TPV3132 test case : strike slip rupture in layered medium
   !> T. ULRICH 02.2015
