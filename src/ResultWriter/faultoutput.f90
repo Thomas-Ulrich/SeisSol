@@ -703,6 +703,7 @@ CONTAINS
                 ElSE
                   Vr=1d0/Slowness
                 ENDIF
+                Vr = Vr/ w_speed(2)
                 DEALLOCATE(projected_RT)
                 iBndGP = DynRup_output%OutInt(iOutPoints,1)
                 ENDIF
