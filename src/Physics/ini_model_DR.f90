@@ -3852,6 +3852,7 @@ MODULE ini_model_DR_mod
   !-------------------------------------------------------------------------!
   USE DGBasis_mod
   use JacobiNormal_mod, only: RotationMatrix3D
+  USE netcdf
   !-------------------------------------------------------------------------!
   IMPLICIT NONE
   !-------------------------------------------------------------------------!
@@ -3865,6 +3866,7 @@ MODULE ini_model_DR_mod
   INTEGER                        :: iSide,iElem,iBndGP
   INTEGER                        :: iLocalNeighborSide,iNeighbor
   INTEGER                        :: MPIIndex, iObject
+  INTEGER                        :: nPartitions,nElements, ncid, dimid, varid,inetcdf,modulate_R_by_Slip
   REAL                           :: xV(MESH%GlobalVrtxType),yV(MESH%GlobalVrtxType),zV(MESH%GlobalVrtxType)
   REAL                           :: chi,tau
   REAL                           :: xi, eta, zeta, XGp, YGp, ZGp, Phi
@@ -3877,8 +3879,11 @@ MODULE ini_model_DR_mod
   real                           :: tangent1(3)
   real                           :: tangent2(3)
   real                           :: T(9,9)
-  real                           :: iT(9,9)
   real                           :: xR1,xR2,yR1,yR2,alpha
+  real                           :: iT(9,9),InvertedSlip
+  REAL, ALLOCATABLE              :: StrikeSlip(:,:), DipSlip(:,:)
+  INTEGER, ALLOCATABLE           :: nFaces(:)
+  character (200)                :: dimname, desc
 
   REAL, PARAMETER                :: pi = 3.141592653589793d0
   !-------------------------------------------------------------------------! 
@@ -3891,6 +3896,35 @@ MODULE ini_model_DR_mod
   ! NOTE: z negative is depth, free surface is at z=0
   !for conveniently changing the stress level in the PARAMETER file
  
+   modulate_R_by_Slip = 0
+   If (modulate_R_by_Slip.EQ.1) THEN
+   
+   call  checkNcError(nf90_open('InvertedSlip_NZfinerfault_OF-dtc1-v2_dev.32.nc', NF90_NOWRITE, ncid))
+   !read description
+   call checkNcError(nf90_get_att(ncid, nf90_global, 'description', desc))
+   logError(*) desc
+   ! Get the varid of the data variable, based on its name, and read the data
+   call  checkNcError(nf90_inq_dimid(ncid, "nPartitions", dimid))
+   call  checkNcError(nf90_inquire_dimension(ncid, dimid, dimname, nPartitions))
+   call  checkNcError(nf90_inq_dimid(ncid, "nElements", dimid))
+   call  checkNcError(nf90_inquire_dimension(ncid, dimid, dimname, nElements))
+   logError(*) 'nPartitions,nElements', nPartitions, nElements
+
+   !dimensions in fortran are inverted
+   ALLOCATE(StrikeSlip(nElements, nPartitions))
+   ALLOCATE(DipSlip(nElements, nPartitions))
+   ALLOCATE(nFaces(nPartitions))
+
+   call  checkNcError(nf90_inq_varid(ncid, "StrikeSlip", varid))
+   call  checkNcError(nf90_get_var(ncid, varid, StrikeSlip))
+   call  checkNcError(nf90_inq_varid(ncid, "DipSlip", varid))
+   call  checkNcError(nf90_get_var(ncid, varid, DipSlip))
+   call  checkNcError(nf90_inq_varid(ncid, "nFaces", varid))
+   call  checkNcError(nf90_get_var(ncid, varid, nFaces))
+
+   logError(*) 'StrikeSlip, DipSlip', StrikeSlip(100,10), DipSlip(100,10)
+   ENDIF
+
   Rnuc = DISC%DynRup%R_crit
   hypox = DISC%DynRup%XHypo
   hypoy = DISC%DynRup%YHypo
@@ -3949,6 +3983,9 @@ MODULE ini_model_DR_mod
   zStressDecreaseStop = -14e3
   zStressDecreaseWidth = zStressDecreaseStart - zStressDecreaseStop
 
+  !because of MPI boundaries, a face can be listed twice. As a consequence, a different iterator need to be use for the netcdf file
+  inetcdf = 0
+
   ! Loop over every mesh element
   DO i = 1, MESH%Fault%nSide
        
@@ -3995,6 +4032,15 @@ MODULE ini_model_DR_mod
           zV(1:4) = MESH%VRTX%xyNode(3,MESH%ELEM%Vertex(1:4,iElem))
       ENDIF
 
+      If (modulate_R_by_Slip.EQ.1) THEN
+      IF (iElem.GT.0) THEN
+         inetcdf=inetcdf+1
+         InvertedSlip  = sqrt(strikeSlip(inetcdf,myrank+1)**2+ dipSlip(inetcdf,myrank+1)**2)
+      ELSE
+         InvertedSlip = 0d0
+      ENDIF
+      ENDIF
+
       DO iBndGP = 1,DISC%Galerkin%nBndGP
           !
           ! Transformation of boundary GP's into XYZ coordinate system
@@ -4039,17 +4085,8 @@ MODULE ini_model_DR_mod
           ELSE
              Rz=0d0
           ENDIF
- 
-           !test test test 
-          !define velocity strengthening zone
-          IF (0) THEN
-          IF (zGP.GE.zADecreaseStart) THEN
-             Rz =0d0
-          ELSE IF (zGP.GE.zADecreaseStop) THEN
-             x = (zGP-zADecreaseStop)/zADecreaseWidth
-             Rz =  Rz * (1d0- (3d0*x**2-2d0*x**3))
-          ENDIF
-          ENDIF
+
+          !Rz=0.6
           
              xR1=6.22e6
              yR1=-3.88e6
@@ -4066,6 +4103,12 @@ MODULE ini_model_DR_mod
              ELSE 
                 Rz = Rz/4d0
              ENDIF
+
+          If (modulate_R_by_Slip.EQ.1) THEN
+          if (InvertedSlip.LT.2d0) THEN
+             Rz=Rz*0.2
+          endif
+          endif
 
           CALL STRESS_STR_DIP_SLIP_AM(DISC,EQN%Bulk_yy_0, EQN%Bulk_zz_0, sigmazz, 0.0e6, EQN%Bulk_xx_0*Rz, .False., EQN%ShearXY_0, bii)
           bii = bii/bii(3)
@@ -4102,7 +4145,8 @@ MODULE ini_model_DR_mod
 
       ENDDO ! iBndGP          
                 
-  ENDDO !    MESH%Fault%nSide                   
+  ENDDO !    MESH%Fault%nSide
+  !logError(*) 'check',inetcdf, nFaces(myrank+1), MESH%Fault%nSide              
   END SUBROUTINE background_NZKaikoura_RS
 
 
