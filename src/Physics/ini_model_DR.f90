@@ -95,8 +95,11 @@ MODULE ini_model_DR_mod
   PRIVATE :: background_NRF
 #ifdef USE_NETCDF
   PRIVATE :: background_NRFhetStr
+  PUBLIC :: checkNcError
 #endif
   PRIVATE :: background_DIP10
+  PRIVATE :: background_NZKaikoura
+  PRIVATE :: background_NZKaikoura_RS
   !---------------------------------------------------------------------------!
   PRIVATE :: nucleation_STEP
   PRIVATE :: nucleation_SMOOTH_GP
@@ -107,7 +110,6 @@ MODULE ini_model_DR_mod
   PRIVATE :: background_SUMATRA
   PRIVATE :: background_SUMATRA_RS
   PRIVATE :: background_SUMATRA_GEO
-
   private :: background_asagi
 
   !---------------------------------------------------------------------------!
@@ -237,6 +239,10 @@ MODULE ini_model_DR_mod
        CALL background_SUMATRA(DISC,EQN,MESH,BND)
     CASE(121)
        CALL background_DIP10(DISC,EQN,MESH,BND)
+    CASE(122)
+       CALL background_NZKaikoura(DISC,EQN,MESH,BND)
+    CASE(123)
+       CALL background_NZKaikoura_RS(DISC,EQN,MESH,BND)
     CASE(1201)
        CALL background_SUMATRA_GEO(DISC,EQN,MESH,BND)
     CASE(1202)
@@ -1935,8 +1941,13 @@ MODULE ini_model_DR_mod
   REAL, PARAMETER                :: pi = 3.141592653589793d0
   INTENT(IN)    :: strike, dip, sigmazz, cohesion, R
   INTENT(INOUT) :: bii
-  mu_dy = DISC%DynRup%Mu_D_ini
-  mu_st = DISC%DynRup%Mu_S_ini
+  IF (DISC%DynRup%Mu_D_ini.NE.0) THEN
+     mu_dy = DISC%DynRup%Mu_D_ini
+     mu_st = DISC%DynRup%Mu_S_ini
+  ELSE
+     mu_dy = DISC%DynRup%Mu_W
+     mu_st = DISC%DynRup%RS_f0
+  ENDIF
   !most favorable direction (A4, AM2003)
   Phi = pi/4d0-0.5d0*atan(mu_st)
   s2=sin(2d0*Phi)
@@ -3679,6 +3690,403 @@ MODULE ini_model_DR_mod
   ENDDO !    MESH%Fault%nSide   
                 
   END SUBROUTINE background_DIP10
+
+  SUBROUTINE background_NZKaikoura (DISC,EQN,MESH,BND)
+  !-------------------------------------------------------------------------!
+  USE DGBasis_mod
+  !-------------------------------------------------------------------------!
+  IMPLICIT NONE
+  !-------------------------------------------------------------------------!
+  TYPE(tDiscretization), target  :: DISC
+  TYPE(tEquations)               :: EQN
+  TYPE(tUnstructMesh)            :: MESH
+  TYPE (tBoundary)               :: BND
+  !-------------------------------------------------------------------------!
+  ! Local variable declaration
+  INTEGER                        :: i,j
+  INTEGER                        :: iSide,iElem,iBndGP
+  INTEGER                        :: iLocalNeighborSide,iNeighbor
+  INTEGER                        :: MPIIndex, iObject
+  REAL                           :: xV(MESH%GlobalVrtxType),yV(MESH%GlobalVrtxType),zV(MESH%GlobalVrtxType)
+  REAL                           :: chi,tau
+  REAL                           :: xi, eta, zeta, XGp, YGp, ZGp, Phi
+  REAL                           :: b11, b22, b33, b12, b13, b23, bii(6), Omega, g, P,Pf, zIncreasingCohesion, zSeismogenicDepth, Rx, Ry, Rz,sigmazz
+  REAL                           :: zStressIncreaseStart,zStressIncreaseStop,zStressIncreaseWidth,zStressDecreaseStart,zStressDecreaseStop,zStressDecreaseWidth,ratioRtopo,x,Sx
+  REAL, PARAMETER                :: pi = 3.141592653589793d0
+  !-------------------------------------------------------------------------! 
+  INTENT(IN)    :: MESH, BND 
+  INTENT(INOUT) :: DISC,EQN
+  !-------------------------------------------------------------------------! 
+  ! stress is assigned to each Gaussian node
+  ! depth dependent stress function (gravity)
+  ! NOTE: z negative is depth, free surface is at z=0
+
+  !for conveniently changing the stress level in the PARAMETER file
+  !b11 b22 and b12 are stress ratio and not absolute stress!
+
+  sigmazz=-2670 * 9.8 *10e3 
+  !most favorable direction (A4, AM2003)
+  Phi = pi/4d0-0.5d0*atan(DISC%DynRup%Mu_S_ini)
+  !CALL STRESS_STR_DIP_SLIP_AM(DISC,115.+Phi, 90.0, sigmazz, 0.4e6, EQN%Bulk_xx_0, .False., bii)
+  CALL STRESS_STR_DIP_SLIP_AM(DISC,EQN%Bulk_yy_0, EQN%Bulk_zz_0, sigmazz, 0.4e6, EQN%Bulk_xx_0, .False., EQN%ShearXY_0, bii)
+  bii = bii/bii(3)
+  b11=bii(1);b22=bii(2);b33=bii(3);b12=bii(4);b23=bii(5);b13=bii(6)
+  logError(*) EQN%Bulk_yy_0, EQN%Bulk_zz_0, EQN%ShearXY_0, bii
+  g = 9.8D0    
+  zIncreasingCohesion = -4000.
+  zStressIncreaseStart = -8e3
+  zStressIncreaseStop = -13e3
+  zStressIncreaseWidth = zStressIncreaseStart - zStressIncreaseStop
+  zStressDecreaseStart = -15e3
+  zStressDecreaseStop = -20e3
+  zStressDecreaseWidth = zStressDecreaseStart - zStressDecreaseStop
+  ratioRtopo = 0.8
+
+  !zIncreasingCohesion = 1e10
+  ! Loop over every mesh element
+  DO i = 1, MESH%Fault%nSide
+       
+      ! switch for rupture front output: RF
+      IF (DISC%DynRup%RF_output_on == 1) THEN
+          ! rupture front output just for + side elements!
+          IF (MESH%FAULT%Face(i,1,1) .NE. 0) DISC%DynRup%RF(i,:) = .TRUE.
+      ENDIF
+      
+      ! element ID    
+      iElem = MESH%Fault%Face(i,1,1)
+      iSide = MESH%Fault%Face(i,2,1)  
+      
+      EQN%IniBulk_xx(i,:)  =  EQN%Bulk_xx_0
+      EQN%IniBulk_yy(i,:)  =  EQN%Bulk_yy_0
+      EQN%IniBulk_zz(i,:)  =  EQN%Bulk_zz_0
+      EQN%IniShearXY(i,:)  =  EQN%ShearXY_0
+      EQN%IniShearYZ(i,:)  =  EQN%ShearYZ_0
+      EQN%IniShearXZ(i,:)  =  EQN%ShearXZ_0
+            
+      ! Gauss node coordinate definition and stress assignment
+      ! get vertices of complete tet
+      IF (MESH%Fault%Face(i,1,1) == 0) THEN
+          ! iElem is in the neighbor domain
+          ! The neighbor element belongs to a different MPI domain
+          iNeighbor           = MESH%Fault%Face(i,1,2)          ! iNeighbor denotes "-" side
+          iLocalNeighborSide  = MESH%Fault%Face(i,2,2)
+          iObject  = MESH%ELEM%BoundaryToObject(iLocalNeighborSide,iNeighbor)
+          MPIIndex = MESH%ELEM%MPINumber(iLocalNeighborSide,iNeighbor)
+          !
+          xV(1:4) = BND%ObjMPI(iObject)%NeighborCoords(1,1:4,MPIIndex)
+          yV(1:4) = BND%ObjMPI(iObject)%NeighborCoords(2,1:4,MPIIndex)
+          zV(1:4) = BND%ObjMPI(iObject)%NeighborCoords(3,1:4,MPIIndex)
+      ELSE
+          !
+          ! get vertices
+          xV(1:4) = MESH%VRTX%xyNode(1,MESH%ELEM%Vertex(1:4,iElem))
+          yV(1:4) = MESH%VRTX%xyNode(2,MESH%ELEM%Vertex(1:4,iElem))
+          zV(1:4) = MESH%VRTX%xyNode(3,MESH%ELEM%Vertex(1:4,iElem))
+      ENDIF
+
+      DO iBndGP = 1,DISC%Galerkin%nBndGP
+          !
+          ! Transformation of boundary GP's into XYZ coordinate system
+          chi  = MESH%ELEM%BndGP_Tri(1,iBndGP)
+          tau  = MESH%ELEM%BndGP_Tri(2,iBndGP)
+          CALL TrafoChiTau2XiEtaZeta(xi,eta,zeta,chi,tau,iSide,0)
+          CALL TetraTrafoXiEtaZeta2XYZ(xGP,yGP,zGP,xi,eta,zeta,xV,yV,zV)
+
+          Rx=0.
+
+          !see Smoothstep function order 1 (e.g. wikipedia)
+          IF (zGP.GE.zStressIncreaseStart) THEN
+             Rz = ratioRtopo
+          ELSE IF ((zGP.LT.zStressIncreaseStart).AND.(zGP.GE.zStressIncreaseStop)) THEN
+             x = 1-(zGP-zStressIncreaseStop)/zStressIncreaseWidth
+             Sx = (3d0*x**2-2d0*x**3)
+             Rz = ratioRtopo + (1d0-ratioRtopo)*Sx
+          ELSE IF (zGP.GE.zStressDecreaseStart) THEN
+             Rz = 1d0
+          ELSE IF (zGP.GE.zStressDecreaseStop) THEN
+             x = 1d0-(zGP-zStressDecreaseStop)/zStressDecreaseWidth
+             Sx = (3d0*x**2-2d0*x**3)
+             Rz = 1d0-Sx
+          ELSE
+             Rz=0d0
+          ENDIF
+          CALL STRESS_STR_DIP_SLIP_AM(DISC,EQN%Bulk_yy_0, EQN%Bulk_zz_0, sigmazz, 0.4e6, EQN%Bulk_xx_0*Rz, .False., EQN%ShearXY_0, bii)
+          bii = bii/bii(3)
+          b11=bii(1);b22=bii(2);b33=bii(3);b12=bii(4);b23=bii(5);b13=bii(6)
+
+         Omega = 1d0
+     
+          Pf = 2000D0 * g * zGP
+          P = 2670d0*g*zGP
+          
+          EQN%IniBulk_zz(i,iBndGP)  =  P*b33
+          EQN%IniBulk_xx(i,iBndGP)  =  Omega*(b11*(P+Pf)-Pf)+(1d0-Omega)*P
+          EQN%IniBulk_yy(i,iBndGP)  =  Omega*(b22*(P+Pf)-Pf)+(1d0-Omega)*P
+          EQN%IniShearXY(i,iBndGP)  =  Omega*(b12*(P+Pf))
+          EQN%IniShearXZ(i,iBndGP)  =  Omega*(b13*(P+Pf))
+          EQN%IniShearYZ(i,iBndGP)  =  Omega*(b23*(P+Pf))
+          EQN%IniBulk_xx(i,iBndGP)  =  EQN%IniBulk_xx(i,iBndGP) + Pf
+          EQN%IniBulk_yy(i,iBndGP)  =  EQN%IniBulk_yy(i,iBndGP) + Pf
+          EQN%IniBulk_zz(i,iBndGP)  =  EQN%IniBulk_zz(i,iBndGP) + Pf
+
+          ! manage cohesion
+          IF (zGP.GE.zIncreasingCohesion) THEN
+              ! higher cohesion near free surface
+              DISC%DynRup%cohesion(i,iBndGP) = -0.4d6-0.0002d6*(zGP-zIncreasingCohesion)
+          ELSE
+              ! set cohesion
+              DISC%DynRup%cohesion(i,iBndGP) = -0.4d6
+          ENDIF
+          
+
+
+
+
+
+      ENDDO ! iBndGP
+                
+  ENDDO !    MESH%Fault%nSide                   
+  END SUBROUTINE background_NZKaikoura
+
+  SUBROUTINE background_NZKaikoura_RS (DISC,EQN,MESH,BND)
+  !-------------------------------------------------------------------------!
+  USE DGBasis_mod
+  use JacobiNormal_mod, only: RotationMatrix3D
+  !-------------------------------------------------------------------------!
+  IMPLICIT NONE
+  !-------------------------------------------------------------------------!
+  TYPE(tDiscretization), target  :: DISC
+  TYPE(tEquations)               :: EQN
+  TYPE(tUnstructMesh)            :: MESH
+  TYPE (tBoundary)               :: BND
+  !-------------------------------------------------------------------------!
+  ! Local variable declaration
+  INTEGER                        :: i,j
+  INTEGER                        :: iSide,iElem,iBndGP
+  INTEGER                        :: iLocalNeighborSide,iNeighbor
+  INTEGER                        :: MPIIndex, iObject
+  REAL                           :: xV(MESH%GlobalVrtxType),yV(MESH%GlobalVrtxType),zV(MESH%GlobalVrtxType)
+  REAL                           :: chi,tau
+  REAL                           :: xi, eta, zeta, XGp, YGp, ZGp, Phi
+  REAL                           :: b11, b22, b33, b12, b13, b23, bii(6), Omega, g, P,Pf, zIncreasingCohesion, zSeismogenicDepth, Rx, Ry, Rz,sigmazz
+  REAL                           :: zStressIncreaseStart,zStressIncreaseStop,zStressIncreaseWidth,zStressDecreaseStart,zStressDecreaseStop,zStressDecreaseWidth,ratioRtopo,x,Sx
+  REAL                           :: zADecreaseStart,zADecreaseStop,zADecreaseWidth, RS_a_inc,RS_srW_inc
+  REAL                           :: r_crit,hypox,hypoy,hypoz
+  REAL                           :: Rnuc, radius, ShapeNucleation
+  real                           :: normal(3)
+  real                           :: tangent1(3)
+  real                           :: tangent2(3)
+  real                           :: T(9,9)
+  real                           :: iT(9,9)
+
+  REAL, PARAMETER                :: pi = 3.141592653589793d0
+  !-------------------------------------------------------------------------! 
+  INTENT(IN)    :: MESH, BND 
+  INTENT(INOUT) :: DISC,EQN
+  !-------------------------------------------------------------------------! 
+  ! TPV29
+  ! stress is assigned to each Gaussian node
+  ! depth dependent stress function (gravity)
+  ! NOTE: z negative is depth, free surface is at z=0
+  !for conveniently changing the stress level in the PARAMETER file
+ 
+  Rnuc = DISC%DynRup%R_crit
+  hypox = DISC%DynRup%XHypo
+  hypoy = DISC%DynRup%YHypo
+  hypoz = DISC%DynRup%ZHypo
+
+  ALLOCATE(  DISC%DynRup%RS_a_array(DISC%Galerkin%nBndGP,MESH%Fault%nSide)        )
+  ALLOCATE(  DISC%DynRup%RS_srW_array(DISC%Galerkin%nBndGP,MESH%Fault%nSide)      )
+  allocate(EQN%NucleationStressInFaultCS(DISC%Galerkin%nBndGP,6,MESH%Fault%nSide))
+
+ 
+  sigmazz=-2670 * 9.8 *10e3 
+  !most favorable direction (A4, AM2003)
+  Phi = pi/4d0-0.5d0*atan(DISC%DynRup%RS_f0)
+  g = 9.8D0    
+
+  !! First setting up the nucelation stress !!
+  CALL STRESS_STR_DIP_SLIP_AM(DISC,EQN%Bulk_yy_0, EQN%Bulk_zz_0, sigmazz, 0.0e6, EQN%ShearXZ_0, .False., EQN%ShearXY_0, bii)
+  bii = bii/bii(3)
+  b11=bii(1);b22=bii(2);b33=bii(3);b12=bii(4);b23=bii(5);b13=bii(6)
+  Pf = -1000D0 * g * hypoz
+  P = 2670d0*g* hypoz
+  Omega=1d0
+
+  DISC%DynRup%NucBulk_zz_0  =  P*b33
+  DISC%DynRup%NucBulk_xx_0  =  Omega*(b11*(P+Pf)-Pf)+(1d0-Omega)*P
+  DISC%DynRup%NucBulk_yy_0  =  Omega*(b22*(P+Pf)-Pf)+(1d0-Omega)*P
+  DISC%DynRup%NucShearXY_0  =  Omega*(b12*(P+Pf))
+  DISC%DynRup%NucShearXZ_0  =  Omega*(b13*(P+Pf))
+  DISC%DynRup%NucShearYZ_0  =  Omega*(b23*(P+Pf))
+  DISC%DynRup%NucBulk_xx_0  =  DISC%DynRup%NucBulk_xx_0 + Pf
+  DISC%DynRup%NucBulk_yy_0  =  DISC%DynRup%NucBulk_yy_0 + Pf
+  DISC%DynRup%NucBulk_zz_0  =  DISC%DynRup%NucBulk_zz_0 + Pf
+
+  ! velocity weakening to strengthening at shallow depth
+  zADecreaseStart = -1.5e3
+  zADecreaseStop = -2.5e3
+  zADecreaseWidth = zADecreaseStart-zADecreaseStop
+  !RS_a_inc = 0.01d0
+  !RS_srW_inc = 0.9d0
+  RS_a_inc = 0.0
+  RS_srW_inc = 0.0
+
+  !less Stress at shallow depth, then increase to peak R at seismogenic depth (stress concentrations), 
+  !then R decrease to 0
+  !zStressIncreaseStart = -6e3
+  !zStressIncreaseStop = -10e3
+  zStressIncreaseStart = -7e3
+  zStressIncreaseStop = -10e3
+  zStressIncreaseWidth = zStressIncreaseStart - zStressIncreaseStop
+  ratioRtopo = 0.6
+  !ratioRtopo = 0.45
+
+  zStressDecreaseStart = -11e3
+  zStressDecreaseStop = -14e3
+  zStressDecreaseWidth = zStressDecreaseStart - zStressDecreaseStop
+
+  ! Loop over every mesh element
+  DO i = 1, MESH%Fault%nSide
+       
+      ! switch for rupture front output: RF
+      IF (DISC%DynRup%RF_output_on == 1) THEN
+          ! rupture front output just for + side elements!
+          IF (MESH%FAULT%Face(i,1,1) .NE. 0) DISC%DynRup%RF(i,:) = .TRUE.
+      ENDIF
+      
+      ! element ID    
+      iElem = MESH%Fault%Face(i,1,1)
+      iSide = MESH%Fault%Face(i,2,1)  
+      
+      EQN%IniBulk_xx(i,:)  =  EQN%Bulk_xx_0
+      EQN%IniBulk_yy(i,:)  =  EQN%Bulk_yy_0
+      EQN%IniBulk_zz(i,:)  =  EQN%Bulk_zz_0
+      EQN%IniShearXY(i,:)  =  EQN%ShearXY_0
+      EQN%IniShearYZ(i,:)  =  EQN%ShearYZ_0
+      EQN%IniShearXZ(i,:)  =  EQN%ShearXZ_0
+
+      ! ini frictional parameters
+      EQN%IniStateVar(i,:) =  EQN%RS_sv0
+      DISC%DynRup%RS_a_array(:,i) = DISC%DynRup%RS_a
+      DISC%DynRup%RS_srW_array(:,i) = DISC%DynRup%RS_srW
+            
+      ! Gauss node coordinate definition and stress assignment
+      ! get vertices of complete tet
+      IF (MESH%Fault%Face(i,1,1) == 0) THEN
+          ! iElem is in the neighbor domain
+          ! The neighbor element belongs to a different MPI domain
+          iNeighbor           = MESH%Fault%Face(i,1,2)          ! iNeighbor denotes "-" side
+          iLocalNeighborSide  = MESH%Fault%Face(i,2,2)
+          iObject  = MESH%ELEM%BoundaryToObject(iLocalNeighborSide,iNeighbor)
+          MPIIndex = MESH%ELEM%MPINumber(iLocalNeighborSide,iNeighbor)
+          !
+          xV(1:4) = BND%ObjMPI(iObject)%NeighborCoords(1,1:4,MPIIndex)
+          yV(1:4) = BND%ObjMPI(iObject)%NeighborCoords(2,1:4,MPIIndex)
+          zV(1:4) = BND%ObjMPI(iObject)%NeighborCoords(3,1:4,MPIIndex)
+      ELSE
+          !
+          ! get vertices
+          xV(1:4) = MESH%VRTX%xyNode(1,MESH%ELEM%Vertex(1:4,iElem))
+          yV(1:4) = MESH%VRTX%xyNode(2,MESH%ELEM%Vertex(1:4,iElem))
+          zV(1:4) = MESH%VRTX%xyNode(3,MESH%ELEM%Vertex(1:4,iElem))
+      ENDIF
+
+      DO iBndGP = 1,DISC%Galerkin%nBndGP
+          !
+          ! Transformation of boundary GP's into XYZ coordinate system
+          chi  = MESH%ELEM%BndGP_Tri(1,iBndGP)
+          tau  = MESH%ELEM%BndGP_Tri(2,iBndGP)
+          CALL TrafoChiTau2XiEtaZeta(xi,eta,zeta,chi,tau,iSide,0)
+          CALL TetraTrafoXiEtaZeta2XYZ(xGP,yGP,zGP,xi,eta,zeta,xV,yV,zV)
+
+          ShapeNucleation=0d0
+          radius=SQRT((xGP-hypox)**2+(yGP-hypoy)**2+(zGP-hypoz)**2)
+          IF (radius.LT.Rnuc) THEN
+             ShapeNucleation=EXP(radius**2/(radius**2-Rnuc**2))
+          ENDIF
+        
+         !Rotate nucleation stress in fault coordinate system
+          normal   = MESH%Fault%geoNormals( 1:3, i)
+          tangent1 = MESH%Fault%geoTangent1(1:3, i)
+          tangent2 = MESH%Fault%geoTangent2(1:3, i)
+          CALL RotationMatrix3D(normal, tangent1, tangent2, T(:,:), iT(:,:), EQN)
+          bii(1)=DISC%DynRup%NucBulk_xx_0
+          bii(2)=DISC%DynRup%NucBulk_yy_0
+          bii(3)=DISC%DynRup%NucBulk_zz_0
+          bii(4)=DISC%DynRup%NucShearXY_0
+          bii(5)=DISC%DynRup%NucShearYZ_0
+          bii(6)=DISC%DynRup%NucShearXZ_0    
+          bii = MATMUL(iT(1:6,1:6), bii(:)) * ShapeNucleation
+          EQN%NucleationStressInFaultCS(iBndGP,:,i) = bii
+
+          !see Smoothstep function order 1 (e.g. wikipedia)
+          IF (zGP.GE.zStressIncreaseStart) THEN
+             Rz = ratioRtopo
+          ELSE IF ((zGP.LT.zStressIncreaseStart).AND.(zGP.GE.zStressIncreaseStop)) THEN
+             x = 1-(zGP-zStressIncreaseStop)/zStressIncreaseWidth
+             Sx = (3d0*x**2-2d0*x**3)
+             Rz = ratioRtopo + (1d0-ratioRtopo)*Sx
+          ELSE IF (zGP.GE.zStressDecreaseStart) THEN
+             Rz = 1d0
+          ELSE IF (zGP.GE.zStressDecreaseStop) THEN
+             x = 1d0-(zGP-zStressDecreaseStop)/zStressDecreaseWidth
+             Sx = (3d0*x**2-2d0*x**3)
+             Rz = 1d0-Sx
+          ELSE
+             Rz=0d0
+          ENDIF
+ 
+           !test test test 
+          !define velocity strengthening zone
+          IF (0) THEN
+          IF (zGP.GE.zADecreaseStart) THEN
+             Rz =0d0
+          ELSE IF (zGP.GE.zADecreaseStop) THEN
+             x = (zGP-zADecreaseStop)/zADecreaseWidth
+             Rz =  Rz * (1d0- (3d0*x**2-2d0*x**3))
+          ENDIF
+          ENDIF
+          
+
+
+
+          CALL STRESS_STR_DIP_SLIP_AM(DISC,EQN%Bulk_yy_0, EQN%Bulk_zz_0, sigmazz, 0.0e6, EQN%Bulk_xx_0*Rz, .False., EQN%ShearXY_0, bii)
+          bii = bii/bii(3)
+          b11=bii(1);b22=bii(2);b33=bii(3);b12=bii(4);b23=bii(5);b13=bii(6)
+
+          !Omega = 1d0
+
+          Pf = -2000D0 * g * min(zGP,-1500d0)
+          P = 2670d0*g*min(zGP,-1500d0)
+          
+          EQN%IniBulk_zz(i,iBndGP)  =  P*b33
+          EQN%IniBulk_xx(i,iBndGP)  =  Omega*(b11*(P+Pf)-Pf)+(1d0-Omega)*P
+          EQN%IniBulk_yy(i,iBndGP)  =  Omega*(b22*(P+Pf)-Pf)+(1d0-Omega)*P
+          EQN%IniShearXY(i,iBndGP)  =  Omega*(b12*(P+Pf))
+          EQN%IniShearXZ(i,iBndGP)  =  Omega*(b13*(P+Pf))
+          EQN%IniShearYZ(i,iBndGP)  =  Omega*(b23*(P+Pf))
+          EQN%IniBulk_xx(i,iBndGP)  =  EQN%IniBulk_xx(i,iBndGP) + Pf
+          EQN%IniBulk_yy(i,iBndGP)  =  EQN%IniBulk_yy(i,iBndGP) + Pf
+          EQN%IniBulk_zz(i,iBndGP)  =  EQN%IniBulk_zz(i,iBndGP) + Pf
+ 
+          !define velocity strengthening zone
+          IF (zGP.GE.zADecreaseStart) THEN
+             Rz = 1d0
+          ELSE IF (zGP.GE.zADecreaseStop) THEN
+             x = (zGP-zADecreaseStop)/zADecreaseWidth
+             Rz = (3d0*x**2-2d0*x**3)
+          ELSE
+             Rz=0d0
+          ENDIF
+
+          DISC%DynRup%RS_a_array(iBndGP,i) = DISC%DynRup%RS_a+RS_a_inc*Rz
+          DISC%DynRup%RS_srW_array(iBndGP,i)=DISC%DynRup%RS_srW+RS_srW_inc*Rz
+
+      ENDDO ! iBndGP          
+                
+  ENDDO !    MESH%Fault%nSide                   
+  END SUBROUTINE background_NZKaikoura_RS
 
 
   !> SCEC TPV3132 test case : strike slip rupture in layered medium

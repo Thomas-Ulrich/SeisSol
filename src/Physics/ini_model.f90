@@ -86,6 +86,7 @@ CONTAINS
     USE ini_model_DR_mod
     use VelocityFieldReader
     use modules
+    USE netcdf
 
     !--------------------------------------------------------------------------
     IMPLICIT NONE
@@ -132,10 +133,17 @@ CONTAINS
     REAL                            :: nLayers, zLayers(20), rhoLayers(20)
     REAL                            :: sigzz, Rx,Ry, Rz, g, sigmazz
     REAL                            :: bii(6)
+    REAL                            :: ax,ay,az
+    REAL                            :: Phi, zADecreaseStart, zADecreaseStop, zADecreaseWidth, zStressIncreaseStart, zStressIncreaseStop, zStressIncreaseWidth
+    REAL                            :: xGP, yGP, zGP, Sx, ratioRtopo, zStressDecreaseStart, zStressDecreaseStop, zStressDecreaseWidth, P0
+    INTEGER                         :: ncid, dimid, varid, i1,j1,k1
+    REAL, ALLOCATABLE               :: x1(:), y1(:), z1(:), ThreeDvelmodel(:,:,:,:)
+    character (200)                 :: dimname, desc
     INTEGER         :: nTens3GP
     REAL,POINTER    :: Tens3GaussP(:,:)
     REAL,POINTER    :: Tens3GaussW(:)
     REAL,POINTER    :: Tens3BaseFunc(:,:)
+    REAL, PARAMETER                :: pi = 3.141592653589793d0
 
     ! ------------------------------------------------------------------------!
 
@@ -1532,6 +1540,186 @@ CONTAINS
                  logError(*) "Material assignement: unkown region", iLayer
            END SELECT
         ENDDO
+
+#ifdef USE_NETCDF
+      CASE(123) !NZKaikoura RS
+           call  checkNcError(nf90_open('structured3dmodel_EPSG_3994.nc', NF90_NOWRITE, ncid))
+           !read description
+           call checkNcError(nf90_get_att(ncid, nf90_global, 'description', desc))
+           logError(*) desc
+           ! Get the varid of the data variable, based on its name, and read the data
+           call  checkNcError(nf90_inq_dimid(ncid, "nx", dimid))
+           call  checkNcError(nf90_inquire_dimension(ncid, dimid, dimname, nx))
+           call  checkNcError(nf90_inq_dimid(ncid, "ny", dimid))
+           call  checkNcError(nf90_inquire_dimension(ncid, dimid, dimname, ny))
+           call  checkNcError(nf90_inq_dimid(ncid, "nz", dimid))
+           call  checkNcError(nf90_inquire_dimension(ncid, dimid, dimname, nz))
+           logError(*) 'nx,ny,nz',nx,ny,nz
+
+           ALLOCATE(x1(nx))
+           ALLOCATE(y1(ny))
+           ALLOCATE(z1(nz))
+           !dimensions in fortran are inverted
+           ALLOCATE(ThreeDvelmodel(3,nz,ny,nx))
+
+           call  checkNcError(nf90_inq_varid(ncid, "x", varid))
+           call  checkNcError(nf90_get_var(ncid, varid, x1))
+           logError(*) 'x1',x1(1:10)
+
+           call  checkNcError(nf90_inq_varid(ncid, "y", varid))
+           call  checkNcError(nf90_get_var(ncid, varid, y1))
+           logError(*) 'y1',y1(1:10)
+
+           call  checkNcError(nf90_inq_varid(ncid, "z", varid))
+           call  checkNcError(nf90_get_var(ncid, varid, z1))
+           logError(*) 'z1',z1(1:10)
+
+           call  checkNcError(nf90_inq_varid(ncid, "threeDvelmodel", varid))
+           call  checkNcError(nf90_get_var(ncid, varid, threeDvelmodel))
+
+           logError(*) x1(2),y1(3),z1(17),threeDvelmodel(1,17,3,2), threeDvelmodel(2,17,3,2),threeDvelmodel(3,17,3,2)
+
+          DO iElem=1, MESH%nElem
+             x = MESH%ELEM%xyBary(1,iElem) !average x coordinate inside an element
+             y = MESH%ELEM%xyBary(2,iElem) !average y coordinate inside an element
+             z = MESH%ELEM%xyBary(3,iElem) !average depth inside an element
+
+             DO i1=1,nx
+                if (x1(i1).GE.x) THEN
+                   EXIT
+                ENDIF
+             ENDDO
+             DO j1=1,ny
+                if (y1(j1).GE.y) THEN
+                   EXIT
+                ENDIF
+             ENDDO
+             DO k1=1,nz
+                if (z1(k1).GE.z) THEN
+                   EXIT
+                ENDIF
+             ENDDO
+
+          if (i1.EQ.1) THEN
+             logError(*) "i1 =1",x, x1(1)
+             i1=2
+             ax = 0d0
+          ELSEIF (x.GT.x1(nx)) THEN
+             logError(*) "i1 =nx",x, x1(nx)
+             i1=nx
+             ax = 1d0
+          ELSE
+             ax = (x-x1(i1-1))/(x1(i1)-x1(i1-1))
+          ENDIF
+          if (j1.EQ.1) THEN
+             logError(*) "j1 =1",y,y1(1)
+             j1=2
+             ay = 0d0
+          ELSEIF (y.GT.y1(ny)) THEN
+             logError(*) "j1 =ny",y,y1(ny)
+             j1=ny
+             ay = 1d0
+          ELSE
+             ay = (y-y1(j1-1))/(y1(j1)-y1(j1-1))
+          ENDIF
+          if (k1.EQ.1) THEN
+             logError(*) "k1 =1",z,z1(1)
+             k1=2
+             az = 0d0
+          ELSEIF (z.GT.z1(nz)) THEN
+             logError(*) "k1 =1",z,z1(nz)
+             k1=nz
+             az = 1d0
+          ELSE
+             az = (z-z1(k1-1))/(z1(k1)-z1(k1-1))
+          ENDIF
+          IF ((min(ax,ay,az).LT.0) .OR. (max(ax,ay,az).GT.1))THEN
+             logError(*) ax,ay,az
+          ENDIF
+
+          MaterialVal(iElem,1:3) = ax*ay*az*threeDvelmodel(1:3,k1,j1,i1) + ax*ay*(1d0-az)*threeDvelmodel(1:3,k1-1,j1,i1) + &
+                                   ax*(1d0-ay)*az*threeDvelmodel(1:3,k1,j1-1,i1) + ax*(1d0-ay)*(1d0-az)*threeDvelmodel(1:3,k1-1,j1-1,i1) + &
+                                   (1d0-ax)*ay*az*threeDvelmodel(1:3,k1,j1,i1-1) + (1d0-ax)*ay*(1d0-az)*threeDvelmodel(1:3,k1-1,j1,i1-1) + &
+                                   (1d0-ax)*(1d0-ay)*az*threeDvelmodel(1:3,k1,j1-1,i1-1) + (1d0-ax)*(1d0-ay)*(1d0-az)*threeDvelmodel(1:3,k1-1,j1-1,i1-1) 
+          az = dsqrt((MaterialVal(iElem,3)+2*MaterialVal(iElem,2))/MaterialVal(iElem,1))
+          if ((az.LE.1000.).OR.(az.GE.14000.)) THEN
+            logError(*) MaterialVal(iElem,1:3)
+          endif
+          ENDDO
+#endif
+        IF (EQN%Plasticity.EQ.1) THEN
+        sigmazz=-2670 * 9.8 *10e3
+        !most favorable direction (A4, AM2003)
+        Phi = pi/4d0-0.5d0*atan(DISC%DynRup%RS_f0)
+        g = 9.8D0
+
+        ! velocity weakening to strengthening at shallow depth
+        zADecreaseStart = -1.5e3
+        zADecreaseStop = -2.5e3
+        zADecreaseWidth = zADecreaseStart-zADecreaseStop
+
+        !less Stress at shallow depth, then increase to peak R at seismogenic depth (stress concentrations),
+        !then R decrease to 0
+        zStressIncreaseStart = -7e3
+        zStressIncreaseStop = -10e3
+        zStressIncreaseWidth = zStressIncreaseStart - zStressIncreaseStop
+        ratioRtopo = 0.6
+
+        zStressDecreaseStart = -11e3
+        zStressDecreaseStop = -14e3
+        zStressDecreaseWidth = zStressDecreaseStart - zStressDecreaseStop
+
+        ! Loop over every mesh element
+
+        DO iElem=1, MESH%nElem
+            xGP = MESH%ELEM%xyBary(1,iElem) 
+            yGP = MESH%ELEM%xyBary(2,iElem) 
+            zGP = MESH%ELEM%xyBary(3,iElem) !average depth inside an element
+
+            !see Smoothstep function order 1 (e.g. wikipedia)
+            IF (zGP.GE.zStressIncreaseStart) THEN
+                Rz = ratioRtopo
+            ELSE IF ((zGP.LT.zStressIncreaseStart).AND.(zGP.GE.zStressIncreaseStop)) THEN
+                x = 1-(zGP-zStressIncreaseStop)/zStressIncreaseWidth
+                Sx = (3d0*x**2-2d0*x**3)
+                Rz = ratioRtopo + (1d0-ratioRtopo)*Sx
+            ELSE IF (zGP.GE.zStressDecreaseStart) THEN
+                Rz = 1d0
+            ELSE IF (zGP.GE.zStressDecreaseStop) THEN
+                x = 1d0-(zGP-zStressDecreaseStop)/zStressDecreaseWidth
+                Sx = (3d0*x**2-2d0*x**3)
+                Rz = 1d0-Sx
+            ELSE
+                Rz=0d0
+            ENDIF
+
+            CALL STRESS_STR_DIP_SLIP_AM(DISC,EQN%Bulk_yy_0, EQN%Bulk_zz_0, sigmazz, 0.0e6, EQN%Bulk_xx_0*Rz, .False., EQN%ShearXY_0, bii)
+            bii = bii/bii(3)
+            b11=bii(1);b22=bii(2);b33=bii(3);b12=bii(4);b23=bii(5);b13=bii(6)
+
+            Omega = 1d0
+
+            Pf = -2000D0 * g * min(zGP,-1500d0)
+            P0 = 2670d0*g*min(zGP,-1500d0)
+
+          radius=SQRT((xGP-DISC%DynRup%XHypo)**2+(yGP-DISC%DynRup%YHypo)**2+(zGP-DISC%DynRup%ZHypo)**2)
+          IF (radius.LT.DISC%DynRup%R_crit) THEN
+             EQN%PlastCo(iElem) = 1e20
+          ENDIF
+
+            EQN%IniStress(3,iElem)  =  P0*b33
+            EQN%IniStress(1,iElem)  =  Omega*(b11*(P0+Pf)-Pf)+(1d0-Omega)*P0
+            EQN%IniStress(2,iElem)  =  Omega*(b22*(P0+Pf)-Pf)+(1d0-Omega)*P0
+            EQN%IniStress(4,iElem)  =  Omega*(b12*(P0+Pf))
+            EQN%IniStress(6,iElem)  =  Omega*(b13*(P0+Pf))
+            EQN%IniStress(5,iElem)  =  Omega*(b23*(P0+Pf))
+            EQN%IniStress(1,iElem)  = EQN%IniStress(1,iElem) + Pf
+            EQN%IniStress(2,iElem)  = EQN%IniStress(2,iElem) + Pf
+            EQN%IniStress(3,iElem)  = EQN%IniStress(3,iElem) + Pf
+
+            ENDDO
+
+         ENDIF !Plasticity
 
       CASE DEFAULT
         logError(*) 'Wrong linType for elastic wave equations.'
