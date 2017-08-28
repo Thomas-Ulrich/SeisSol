@@ -1920,7 +1920,7 @@ MODULE ini_model_DR_mod
   END SUBROUTINE
 
   ! COMPUTE NORMALIZED STRESS FOLLOWING THE METHOD  OF Aochi and Madariaga 2004 extended to dip slip fault
-  SUBROUTINE STRESS_STR_DIP_SLIP_AM(DISC,strike, dip, sigmazz, cohesion, R, DipSlipFaulting, bii)
+  SUBROUTINE STRESS_STR_DIP_SLIP_AM(DISC,strike, dip, sigmazz, cohesion, R, DipSlipFaulting, s2ratio, bii)
   IMPLICIT NONE
   TYPE(tDiscretization), target  :: DISC
   LOGICAL                        :: DipSlipFaulting
@@ -1929,7 +1929,7 @@ MODULE ini_model_DR_mod
   REAL                           :: c2,s2,Phi,c2bis,mu_dy,mu_st
   REAL                           :: ds, sm, phi_xyz,c,s
   REAL                           :: sii(3), Stress(3,3), R1(3,3), R2(3,3), R3(3,3), Stress_cartesian_norm(3,3)
-  REAL                           :: bii(6),P
+  REAL                           :: bii(6),P,s2ratio
   REAL, PARAMETER                :: pi = 3.141592653589793d0
   INTENT(IN)    :: strike, dip, sigmazz, cohesion, R
   INTENT(INOUT) :: bii
@@ -1948,7 +1948,7 @@ MODULE ini_model_DR_mod
       ds =  (mu_dy * P + R*(cohesion + (mu_st-mu_dy)*P)) / (s2 + mu_dy*c2 + R*(mu_st-mu_dy)*c2)
       sm=P;
       sii(1)= P + ds
-      sii(2)= P
+      sii(2)= P - ds + 2d0*ds*s2ratio
       sii(3)= P - ds
 
       !first rotation: of axis U_t
@@ -1986,7 +1986,7 @@ MODULE ini_model_DR_mod
 
       sii(1)= sm + ds
       !could be any value between sig1 and sig3
-      sii(2)= sm
+      sii(2)= sm - ds + 2d0*ds*s2ratio
       sii(3)= sm - ds
 
       Stress = transpose(reshape((/ sii(1), 0.0, 0.0, 0.0, sii(2), 0.0, 0.0, 0.0, sii(3) /), shape(Stress)))
@@ -2057,7 +2057,7 @@ MODULE ini_model_DR_mod
 
   IF (Laterally_homogenous_Stress.EQ.1) THEN
      ! strike, dip, sigmazz,cohesion,R
-     CALL STRESS_STR_DIP_SLIP_AM(DISC,309.0, 19.0, 555562000.0, 0.4e6, 0.6, .True., bii)
+     CALL STRESS_STR_DIP_SLIP_AM(DISC,309.0, 19.0, 555562000.0, 0.4e6, 0.6, .True., 0.5d0,bii)
      b11=bii(1);b22=bii(2);b12=bii(4);b23=bii(5);b13=bii(6)
   ELSE
      !93 4
@@ -2150,7 +2150,7 @@ MODULE ini_model_DR_mod
           ENDDO
 
           !increase tappering depth around hypocenter
-          IF (0) THEN
+          IF (.FALSE.) THEN
           IF ((yGP-yR1).LT.(xGP-XR1)) THEN
               zStressTapering = -35e3
           ELSE IF ((yGP-yR2).LT.(xGP-XR2)) THEN
@@ -2186,24 +2186,24 @@ MODULE ini_model_DR_mod
              !**yS1
              ! cst_S
              IF ((yGP-yR1).LT.(xGP-XR1)) THEN
-                CALL STRESS_STR_DIP_SLIP_AM(DISC,309.0, 10., 555562000.0, 0.4e6, EQN%Bulk_xx_0, .True., bii)
+                CALL STRESS_STR_DIP_SLIP_AM(DISC,309.0, 10., 555562000.0, 0.4e6, EQN%Bulk_xx_0, .True., 0.5d0,bii)
                 b11=bii(1);b22=bii(2);b12=bii(4);b23=bii(5);b13=bii(6)
              ELSE IF ((yGP-yR2).LT.(xGP-XR2)) THEN
                 alpha = ((yGP-xGP)-(yR1-xR1))/((yR2-xR2)-(yR1-xR1))
-                CALL STRESS_STR_DIP_SLIP_AM(DISC,309.0, (1.0-alpha)*10.+alpha*EQN%Bulk_yy_0, 555562000.0, 0.4e6, EQN%Bulk_xx_0,.True., bii)
+                CALL STRESS_STR_DIP_SLIP_AM(DISC,309.0, (1.0-alpha)*10.+alpha*EQN%Bulk_yy_0, 555562000.0, 0.4e6, EQN%Bulk_xx_0,.True., 0.5d0,bii)
                 b11=bii(1);b22=bii(2);b12=bii(4);b23=bii(5);b13=bii(6)
              ELSE IF ((yGP-yS1).LT.(xGP-XS1)) THEN
                 ! strike, dip, sigmazz,cohesion,R
-                CALL STRESS_STR_DIP_SLIP_AM(DISC,309.0, EQN%Bulk_yy_0, 555562000.0, 0.4e6, EQN%Bulk_xx_0, .True., bii)
+                CALL STRESS_STR_DIP_SLIP_AM(DISC,309.0, EQN%Bulk_yy_0, 555562000.0, 0.4e6, EQN%Bulk_xx_0, .True., 0.5d0,bii)
                 b11=bii(1);b22=bii(2);b12=bii(4);b23=bii(5);b13=bii(6)
              ELSE IF ((yGP-yS2).LT.(xGP-XS2)) THEN
                 alpha = ((yGP-xGP)-(yS1-xS1))/((yS2-xS2)-(yS1-xS1))
                 ! strike, dip, sigmazz,cohesion,R
-                CALL STRESS_STR_DIP_SLIP_AM(DISC,(1.0-alpha)*309.0+alpha*330.0, EQN%Bulk_yy_0, 555562000.0, 0.4e6, EQN%Bulk_xx_0, .True., bii)
+                CALL STRESS_STR_DIP_SLIP_AM(DISC,(1.0-alpha)*309.0+alpha*330.0, EQN%Bulk_yy_0, 555562000.0, 0.4e6, EQN%Bulk_xx_0, .True., 0.5d0,bii)
                 b11=bii(1);b22=bii(2);b12=bii(4);b23=bii(5);b13=bii(6)
              ELSE
                 ! strike, dip, sigmazz,cohesion,R
-                CALL STRESS_STR_DIP_SLIP_AM(DISC,330.0, EQN%Bulk_yy_0, 555562000.0, 0.4e6, EQN%Bulk_xx_0, .True., bii)
+                CALL STRESS_STR_DIP_SLIP_AM(DISC,330.0, EQN%Bulk_yy_0, 555562000.0, 0.4e6, EQN%Bulk_xx_0, .True., 0.5d0,bii)
                 b11=bii(1);b22=bii(2);b12=bii(4);b23=bii(5);b13=bii(6)
              ENDIF
           ENDIF
@@ -2997,7 +2997,7 @@ MODULE ini_model_DR_mod
 
   
   sigmazz=-2670 * 9.8 *10e3 
-  CALL STRESS_STR_DIP_SLIP_AM(DISC,90.0, 90.0, sigmazz, 0.4e6, EQN%Bulk_xx_0, .False., bii)
+  CALL STRESS_STR_DIP_SLIP_AM(DISC,90.0, 90.0, sigmazz, 0.4e6, EQN%Bulk_xx_0, .False., 0.5d0, bii)
   b11=bii(1);b22=bii(2);b12=bii(4)
   logError(*) b11,b22,b12
   g = 9.8D0    
