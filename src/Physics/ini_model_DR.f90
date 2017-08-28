@@ -2742,7 +2742,7 @@ MODULE ini_model_DR_mod
       ! switch for rupture front output: RF
       IF (DISC%DynRup%RF_output_on == 1) THEN
           ! rupture front output just for + side elements!
-          IF (MESH%FAULT%Face(i,1,1) .NE. 0) DISC%DynRup%RF(i,:) = .TRUE.
+          IF (MESH%FAULT%Face(i,1,1) .NE. 0) DISC%DynRup%RF(:,i) = .TRUE.
       ENDIF
       
       ! element ID    
@@ -2876,7 +2876,7 @@ MODULE ini_model_DR_mod
       ! switch for rupture front output: RF
       IF (DISC%DynRup%RF_output_on == 1) THEN
           ! rupture front output just for + side elements!
-          IF (MESH%FAULT%Face(i,1,1) .NE. 0) DISC%DynRup%RF(i,:) = .TRUE.
+          IF (MESH%FAULT%Face(i,1,1) .NE. 0) DISC%DynRup%RF(:,i) = .TRUE.
       ENDIF
       
       ! element ID    
@@ -3144,7 +3144,7 @@ MODULE ini_model_DR_mod
       ! switch for rupture front output: RF
       IF (DISC%DynRup%RF_output_on == 1) THEN
           ! rupture front output just for + side elements!
-          IF (MESH%FAULT%Face(i,1,1) .NE. 0) DISC%DynRup%RF(i,:) = .TRUE.
+          IF (MESH%FAULT%Face(i,1,1) .NE. 0) DISC%DynRup%RF(:,i) = .TRUE.
       ENDIF
       
       ! element ID    
@@ -3339,7 +3339,7 @@ MODULE ini_model_DR_mod
       ! switch for rupture front output: RF
       IF (DISC%DynRup%RF_output_on == 1) THEN
           ! rupture front output just for + side elements!
-          IF (MESH%FAULT%Face(i,1,1) .NE. 0) DISC%DynRup%RF(i,:) = .TRUE.
+          IF (MESH%FAULT%Face(i,1,1) .NE. 0) DISC%DynRup%RF(:,i) = .TRUE.
       ENDIF
       
       ! element ID    
@@ -3567,7 +3567,7 @@ MODULE ini_model_DR_mod
       ! switch for rupture front output: RF
       IF (DISC%DynRup%RF_output_on == 1) THEN
           ! rupture front output just for + side elements!
-          IF (MESH%FAULT%Face(i,1,1) .NE. 0) DISC%DynRup%RF(i,:) = .TRUE.
+          IF (MESH%FAULT%Face(i,1,1) .NE. 0) DISC%DynRup%RF(:,i) = .TRUE.
       ENDIF
       
       ! element ID    
@@ -3727,7 +3727,7 @@ MODULE ini_model_DR_mod
       ! switch for rupture front output: RF
       IF (DISC%DynRup%RF_output_on == 1) THEN
           ! rupture front output just for + side elements!
-          IF (MESH%FAULT%Face(i,1,1) .NE. 0) DISC%DynRup%RF(i,:) = .TRUE.
+          IF (MESH%FAULT%Face(i,1,1) .NE. 0) DISC%DynRup%RF(:,i) = .TRUE.
       ENDIF
       
       ! element ID    
