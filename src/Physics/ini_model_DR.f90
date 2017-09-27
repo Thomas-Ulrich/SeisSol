@@ -3874,12 +3874,14 @@ MODULE ini_model_DR_mod
   REAL                           :: xi, eta, zeta, XGp, YGp, ZGp, Phi
   REAL                           :: b11, b22, b33, b12, b13, b23, bii(6), Omega, g, P,Pf, zIncreasingCohesion, zSeismogenicDepth, Rx, Ry, Rz,sigmazz
   REAL                           :: zStressIncreaseStart,zStressIncreaseStop,zStressIncreaseWidth,zStressDecreaseStart,zStressDecreaseStop,zStressDecreaseWidth,ratioRtopo,x,Sx
+  REAL                           :: zStressIncreaseStart0,zStressIncreaseStop0,zStressDecreaseStart0,zStressDecreaseStop0
   REAL                           :: zADecreaseStart,zADecreaseStop,zADecreaseWidth, RS_a_inc,RS_srW_inc
   REAL                           :: r_crit,hypox,hypoy,hypoz
   REAL                           :: Rnuc, radius, ShapeNucleation
   real                           :: normal(3)
   real                           :: tangent1(3)
   real                           :: tangent2(3)
+  real                           :: tosubstract
   real                           :: T(9,9)
   real                           :: xR1,xR2,yR1,yR2,alpha
   real                           :: iT(9,9),InvertedSlip
@@ -3899,35 +3901,35 @@ MODULE ini_model_DR_mod
   !for conveniently changing the stress level in the PARAMETER file
  
    modulate_R_by_Slip = 0
+
    If (modulate_R_by_Slip.EQ.1) THEN
-   
-   call  checkNcError(nf90_open('InvertedSlipSmooth_NZfinerfault_OF-dtc1-v2_dev.32.nc', NF90_NOWRITE, ncid))
-   !read description
-   call checkNcError(nf90_get_att(ncid, nf90_global, 'description', desc))
-   logError(*) desc
-   ! Get the varid of the data variable, based on its name, and read the data
-   call  checkNcError(nf90_inq_dimid(ncid, "nPartitions", dimid))
-   call  checkNcError(nf90_inquire_dimension(ncid, dimid, dimname, nPartitions))
-   call  checkNcError(nf90_inq_dimid(ncid, "nElements", dimid))
-   call  checkNcError(nf90_inquire_dimension(ncid, dimid, dimname, nElements))
-   logError(*) 'nPartitions,nElements', nPartitions, nElements
+      call  checkNcError(nf90_open('InvertedSlipSmooth_NZfinerfault_OF-dtc1-v2_dev.32.nc', NF90_NOWRITE, ncid))
+      !read description
+      call checkNcError(nf90_get_att(ncid, nf90_global, 'description', desc))
+      logError(*) desc
+      ! Get the varid of the data variable, based on its name, and read the data
+      call  checkNcError(nf90_inq_dimid(ncid, "nPartitions", dimid))
+      call  checkNcError(nf90_inquire_dimension(ncid, dimid, dimname, nPartitions))
+      call  checkNcError(nf90_inq_dimid(ncid, "nElements", dimid))
+      call  checkNcError(nf90_inquire_dimension(ncid, dimid, dimname, nElements))
+      logError(*) 'nPartitions,nElements', nPartitions, nElements
 
-   !dimensions in fortran are inverted
-   ALLOCATE(StrikeSlip(nElements, nPartitions))
-   ALLOCATE(DipSlip(nElements, nPartitions))
-   ALLOCATE(nFaces(nPartitions))
-   StrikeSlip(:,:)=0d0
-   DipSlip(:,:)=0d0
-   nFaces(:)=0
+      !dimensions in fortran are inverted
+      ALLOCATE(StrikeSlip(nElements, nPartitions))
+      ALLOCATE(DipSlip(nElements, nPartitions))
+      ALLOCATE(nFaces(nPartitions))
+      StrikeSlip(:,:)=0d0
+      DipSlip(:,:)=0d0
+      nFaces(:)=0
 
-   call  checkNcError(nf90_inq_varid(ncid, "StrikeSlip", varid))
-   call  checkNcError(nf90_get_var(ncid, varid, StrikeSlip))
-   call  checkNcError(nf90_inq_varid(ncid, "DipSlip", varid))
-   call  checkNcError(nf90_get_var(ncid, varid, DipSlip))
-   call  checkNcError(nf90_inq_varid(ncid, "nFaces", varid))
-   call  checkNcError(nf90_get_var(ncid, varid, nFaces))
+      call  checkNcError(nf90_inq_varid(ncid, "StrikeSlip", varid))
+      call  checkNcError(nf90_get_var(ncid, varid, StrikeSlip))
+      call  checkNcError(nf90_inq_varid(ncid, "DipSlip", varid))
+      call  checkNcError(nf90_get_var(ncid, varid, DipSlip))
+      call  checkNcError(nf90_inq_varid(ncid, "nFaces", varid))
+      call  checkNcError(nf90_get_var(ncid, varid, nFaces))
 
-   logError(*) 'StrikeSlip, DipSlip', StrikeSlip(100,10), DipSlip(100,10)
+      logError(*) 'StrikeSlip, DipSlip', StrikeSlip(100,10), DipSlip(100,10)
    ENDIF
 
   Rnuc = DISC%DynRup%R_crit
@@ -3940,7 +3942,7 @@ MODULE ini_model_DR_mod
   allocate(EQN%NucleationStressInFaultCS(DISC%Galerkin%nBndGP,6,MESH%Fault%nSide))
 
  
-  sigmazz=-2670 * 9.8 *10e3 
+  sigmazz=-2670 * 9.8 *10d3 
   !most favorable direction (A4, AM2003)
   Phi = pi/4d0-0.5d0*atan(DISC%DynRup%RS_f0)
   g = 9.8D0    
@@ -3964,29 +3966,22 @@ MODULE ini_model_DR_mod
   DISC%DynRup%NucBulk_zz_0  =  DISC%DynRup%NucBulk_zz_0 + Pf
 
   ! velocity weakening to strengthening at shallow depth
-  !zADecreaseStart = -1.5e3
-  !zADecreaseStop = -2.5e3
-  zADecreaseStart = 1.5e3
-  zADecreaseStop = -4.0e3
+  zADecreaseStart = 1.5d3
+  zADecreaseStop = -4.0d3
   zADecreaseWidth = zADecreaseStart-zADecreaseStop
   RS_a_inc = 0.01d0
-  !RS_srW_inc = 0.5d0
-  !RS_a_inc = 0.0
   RS_srW_inc = 0.0
 
   !less Stress at shallow depth, then increase to peak R at seismogenic depth (stress concentrations), 
   !then R decrease to 0
-  !zStressIncreaseStart = -6e3
-  !zStressIncreaseStop = -10e3
-  zStressIncreaseStart = -7e3
-  zStressIncreaseStop = -10e3
-  zStressIncreaseWidth = zStressIncreaseStart - zStressIncreaseStop
+  zStressIncreaseStart0 = -7d3
+  zStressIncreaseStop0 = -10d3
+  zStressIncreaseWidth = zStressIncreaseStart0 - zStressIncreaseStop0
   ratioRtopo = 0.6
-  !ratioRtopo = 0.45
 
-  zStressDecreaseStart = -11e3
-  zStressDecreaseStop = -14e3
-  zStressDecreaseWidth = zStressDecreaseStart - zStressDecreaseStop
+  zStressDecreaseStart0 = -11d3
+  zStressDecreaseStop0 = -14d3
+  zStressDecreaseWidth = zStressDecreaseStart0 - zStressDecreaseStop0
 
   !because of MPI boundaries, a face can be listed twice. As a consequence, a different iterator need to be use for the netcdf file
   inetcdf = 0
@@ -4038,12 +4033,12 @@ MODULE ini_model_DR_mod
       ENDIF
 
       If (modulate_R_by_Slip.EQ.1) THEN
-      IF (iElem.GT.0) THEN
-         inetcdf=inetcdf+1
-         InvertedSlip  = sqrt(strikeSlip(inetcdf,myrank+1)**2+ dipSlip(inetcdf,myrank+1)**2)
-      ELSE
-         InvertedSlip = 0d0
-      ENDIF
+         IF (iElem.GT.0) THEN
+            inetcdf=inetcdf+1
+            InvertedSlip  = sqrt(strikeSlip(inetcdf,myrank+1)**2+ dipSlip(inetcdf,myrank+1)**2)
+         ELSE
+            InvertedSlip = 0d0
+         ENDIF
       ENDIF
 
       DO iBndGP = 1,DISC%Galerkin%nBndGP
@@ -4074,6 +4069,28 @@ MODULE ini_model_DR_mod
           bii = MATMUL(iT(1:6,1:6), bii(:)) * ShapeNucleation
           EQN%NucleationStressInFaultCS(iBndGP,:,i) = bii
 
+          !Lateral stress Heterogeneities
+          ! change seismogenic depth and rotate SHmax
+          xR1=6.18d6
+          yR1=-3.91d6
+          xR2=xR1+15d3
+          yR2=yR1+15d3
+
+          IF ((yGP-yR1).LT.(-xGP+XR1)) THEN
+             alpha=0d0
+          ELSE IF ((yGP-yR2).LT.(-xGP+XR2)) THEN
+             alpha = ((yGP+xGP)-(yR1+xR1))/((yR2+xR2)-(yR1+xR1))
+          ELSE 
+             alpha=1d0
+          ENDIF
+
+          zStressIncreaseStart = zStressIncreaseStart0 - 6d3*alpha
+          zStressIncreaseStop =  zStressIncreaseStop0 -6d3*alpha
+          zStressDecreaseStart = zStressDecreaseStart0 -6d3*alpha
+          zStressDecreaseStop = zStressDecreaseStop0 -6d3*alpha
+          tosubstract = 20d0*alpha
+
+          !Depth Dependance of stress magnitude
           !see Smoothstep function order 1 (e.g. wikipedia)
           IF (zGP.GE.zStressIncreaseStart) THEN
              Rz = ratioRtopo
@@ -4091,35 +4108,31 @@ MODULE ini_model_DR_mod
              Rz=0d0
           ENDIF
 
-          !Rz=0.6
-          
-             xR1=6.22e6
-             yR1=-3.88e6
-             xR2=6.236e6
-             yR2=-3.87e6
-             xR2=xR1+15e3
-             yR2=yR1+15e3
+          !Decrease of the stress magnitude is the NF region
+          xR1=6.22d6
+          yR1=-3.88d6
+          xR2=xR1+15d3
+          yR2=yR1+15d3
 
-             IF ((yGP-yR1).LT.(-xGP+XR1)) THEN
-                !do nothing
-             ELSE IF ((yGP-yR2).LT.(-xGP+XR2)) THEN
-                alpha = ((yGP+xGP)-(yR1+xR1))/((yR2+xR2)-(yR1+xR1))
-                Rz = Rz /(1d0+3d0*alpha) 
-             ELSE 
-                Rz = Rz/4d0
-             ENDIF
+          IF ((yGP-yR1).LT.(-xGP+XR1)) THEN
+             alpha = 0d0
+          ELSE IF ((yGP-yR2).LT.(-xGP+XR2)) THEN
+             alpha = ((yGP+xGP)-(yR1+xR1))/((yR2+xR2)-(yR1+xR1))
+          ELSE 
+             Rz = 1d0
+          ENDIF
+          Rz = Rz /(1d0+4d0*alpha)
 
           If (modulate_R_by_Slip.EQ.1) THEN
-          if (InvertedSlip.LT.2d0) THEN
-             Rz=Rz*0.2
-          endif
+             if (InvertedSlip.LT.2d0) THEN
+                Rz=Rz*0.2
+             endif
           endif
 
-          CALL STRESS_STR_DIP_SLIP_AM(DISC,EQN%Bulk_yy_0, EQN%Bulk_zz_0, sigmazz, 0.0e6, EQN%Bulk_xx_0*Rz, .False., EQN%ShearXY_0, bii)
+          CALL STRESS_STR_DIP_SLIP_AM(DISC,EQN%Bulk_yy_0-tosubstract, EQN%Bulk_zz_0, sigmazz, 0.0e6, EQN%Bulk_xx_0*Rz, .False., EQN%ShearXY_0, bii)
           bii = bii/bii(3)
           b11=bii(1);b22=bii(2);b33=bii(3);b12=bii(4);b23=bii(5);b13=bii(6)
 
-          !Omega = 1d0
 
           Pf = -2000D0 * g * min(zGP,-1500d0)
           P = 2670d0*g*min(zGP,-1500d0)
@@ -4134,7 +4147,7 @@ MODULE ini_model_DR_mod
           EQN%IniBulk_yy(i,iBndGP)  =  EQN%IniBulk_yy(i,iBndGP) + Pf
           EQN%IniBulk_zz(i,iBndGP)  =  EQN%IniBulk_zz(i,iBndGP) + Pf
  
-          !define velocity strengthening zone
+          !Define velocity strengthening zone
           IF (zGP.GE.zADecreaseStart) THEN
              Rz = 1d0
           ELSE IF (zGP.GE.zADecreaseStop) THEN
@@ -4145,13 +4158,27 @@ MODULE ini_model_DR_mod
              Rz=0d0
           ENDIF
 
+          !Increase RS_srW_inc only in the North (it impacts the HFZ CCFZ rupture transistion)
+          xR1=6.18d6
+          yR1=-3.91d6
+          xR2=xR1+15d3
+          yR2=yR1+15d3
+
+          IF ((yGP-yR1).LT.(-xGP+XR1)) THEN
+             alpha = 0d0
+          ELSE IF ((yGP-yR2).LT.(-xGP+XR2)) THEN
+             alpha = ((yGP+xGP)-(yR1+xR1))/((yR2+xR2)-(yR1+xR1))
+          ELSE 
+             alpha = 1d0
+          ENDIF
+          RS_srW_inc = alpha
+
           DISC%DynRup%RS_a_array(iBndGP,i) = DISC%DynRup%RS_a+RS_a_inc*Rz
           DISC%DynRup%RS_srW_array(iBndGP,i)=DISC%DynRup%RS_srW+RS_srW_inc*Rz
 
       ENDDO ! iBndGP          
                 
   ENDDO !    MESH%Fault%nSide
-  !logError(*) 'check',inetcdf, nFaces(myrank+1), MESH%Fault%nSide              
   END SUBROUTINE background_NZKaikoura_RS
 
   SUBROUTINE background_NZKaikoura_StressFromSlip (DISC,EQN,MESH,BND)
