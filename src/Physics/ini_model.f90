@@ -128,6 +128,7 @@ CONTAINS
     REAL                            :: BedrockVelModel(22,4)
     INTEGER                         :: eType
     REAL                            :: Pf                                     ! fluid pressure
+    REAL                            :: Vpmin
     REAL                            :: b11, b22, b12, b13, b23, b33           ! coefficients for special loading
     REAL                            :: yN1, yN2, yS1, yS2, xS1, xS2, alpha
     REAL                            :: nLayers, zLayers(20), rhoLayers(20)
@@ -1642,6 +1643,17 @@ CONTAINS
                                    (1d0-ax)*ay*az*threeDvelmodel(1:3,k1,j1,i1-1) + (1d0-ax)*ay*(1d0-az)*threeDvelmodel(1:3,k1-1,j1,i1-1) + &
                                    (1d0-ax)*(1d0-ay)*az*threeDvelmodel(1:3,k1,j1-1,i1-1) + (1d0-ax)*(1d0-ay)*(1d0-az)*threeDvelmodel(1:3,k1-1,j1-1,i1-1) 
           az = dsqrt((MaterialVal(iElem,3)+2*MaterialVal(iElem,2))/MaterialVal(iElem,1))
+          !uncomment for removing too low velocities
+          if (0) then
+             Vpmin = 3600d0
+             if (az.LE.Vpmin) THEN
+                MaterialVal(iElem,1) = 2400d0
+                ! using Vs=Vp/sqrt(3)
+                MaterialVal(iElem,2) = (1d0/3d0) * 2400d0 * Vpmin**2
+                MaterialVal(iElem,3) = (1d0/3d0) * 2400d0 * Vpmin**2 
+             endif
+          endif
+
           if ((az.LE.1000.).OR.(az.GE.14000.)) THEN
             logError(*) MaterialVal(iElem,1:3)
           endif
