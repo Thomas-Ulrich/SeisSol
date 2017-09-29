@@ -100,6 +100,7 @@ MODULE ini_model_DR_mod
   PRIVATE :: background_DIP10
   PRIVATE :: background_NZKaikoura
   PRIVATE :: background_NZKaikoura_RS
+  PRIVATE :: background_NZKaikoura_RS_fromInv
   !---------------------------------------------------------------------------!
   PRIVATE :: nucleation_STEP
   PRIVATE :: nucleation_SMOOTH_GP
@@ -125,7 +126,7 @@ MODULE ini_model_DR_mod
 
   !> Interface to dynamic rupture initial models
   !<
-  SUBROUTINE DR_setup(EQN,DISC,MESH,IO,BND)
+  SUBROUTINE DR_setup(EQN,DISC,MESH,IO,BND,MaterialVal)
     use JacobiNormal_mod, only: RotationMatrix3D
     !-------------------------------------------------------------------------!
     IMPLICIT NONE
@@ -143,8 +144,9 @@ MODULE ini_model_DR_mod
     real                           :: iT(9,9)
     real                           :: Stress(1:6,1:DISC%Galerkin%nBndGP)
     real                           :: StressinFaultCS(6)
+    REAL                          :: MaterialVal(MESH%nElem,EQN%nBackgroundVar) !< Local Mean Values
     !-------------------------------------------------------------------------!
-    INTENT(IN)                      :: MESH, BND
+    INTENT(IN)                      :: MESH, BND, MaterialVal
     INTENT(INOUT)                   :: IO, EQN, DISC
     ! -------------------------------------------------------------------------
 
@@ -245,6 +247,8 @@ MODULE ini_model_DR_mod
        CALL background_NZKaikoura_RS(DISC,EQN,MESH,BND)
     CASE(124)
        CALL background_NZKaikoura_StressFromSlip(DISC,EQN,MESH,BND)
+    CASE(125)
+       CALL background_NZKaikoura_RS_fromInv(DISC,EQN,MESH,BND,MaterialVal)
     CASE(1201)
        CALL background_SUMATRA_GEO(DISC,EQN,MESH,BND)
     CASE(1202)
@@ -4181,6 +4185,259 @@ MODULE ini_model_DR_mod
   ENDDO !    MESH%Fault%nSide
   END SUBROUTINE background_NZKaikoura_RS
 
+  SUBROUTINE background_NZKaikoura_RS_fromInv(DISC,EQN,MESH,BND,MaterialVal)
+  !-------------------------------------------------------------------------!
+  USE DGBasis_mod
+  use JacobiNormal_mod, only: RotationMatrix3D
+  USE common_operators_mod
+  USE netcdf
+  !-------------------------------------------------------------------------!
+  IMPLICIT NONE
+  !-------------------------------------------------------------------------!
+  TYPE(tDiscretization), target  :: DISC
+  TYPE(tEquations)               :: EQN
+  TYPE(tUnstructMesh)            :: MESH
+  TYPE (tBoundary)               :: BND
+  !-------------------------------------------------------------------------!
+  ! Local variable declaration
+  INTEGER                        :: i,j
+  INTEGER                        :: iSide,iElem,iBndGP
+  INTEGER                        :: iLocalNeighborSide,iNeighbor
+  INTEGER                        :: MPIIndex, iObject
+  INTEGER                        :: nPartitions,nElements, ncid, dimid, varid,inetcdf,modulate_R_by_Slip
+  REAL                           :: xV(MESH%GlobalVrtxType),yV(MESH%GlobalVrtxType),zV(MESH%GlobalVrtxType)
+  REAL                           :: chi,tau
+  REAL                           :: xi, eta, zeta, XGp, YGp, ZGp, Phi
+  REAL                           :: b11, b22, b33, b12, b13, b23, bii(6), Omega, g, P,Pf, zIncreasingCohesion, zSeismogenicDepth, Rx, Ry, Rz,sigmazz
+  REAL                           :: zStressIncreaseStart,zStressIncreaseStop,zStressIncreaseWidth,zStressDecreaseStart,zStressDecreaseStop,zStressDecreaseWidth,ratioRtopo,x,Sx
+  REAL                           :: zStressIncreaseStart0,zStressIncreaseStop0,zStressDecreaseStart0,zStressDecreaseStop0
+  REAL                           :: zADecreaseStart,zADecreaseStop,zADecreaseWidth, RS_a_inc,RS_srW_inc
+  REAL                           :: r_crit,hypox,hypoy,hypoz
+  REAL                           :: Rnuc, radius, ShapeNucleation
+  real                           :: normal(3)
+  real                           :: tangent1(3)
+  real                           :: tangent2(3)
+  real                           :: tosubstract,Zover2
+  real                           :: T(9,9)
+  real                           :: xR1,xR2,yR1,yR2,alpha
+  real                           :: iT(9,9),InvertedSlip
+  real                           :: NormalVect_n(3), dip_vector(3),strike_vector(3), crossprod(3)
+  REAL, ALLOCATABLE              :: StrikeSlip(:,:), DipSlip(:,:)
+  REAL                           :: MaterialVal(MESH%nElem,EQN%nBackgroundVar) !< Local Mean Values
+  INTEGER, ALLOCATABLE           :: nFaces(:)
+  character (200)                :: dimname, desc
+
+  REAL, PARAMETER                :: pi = 3.141592653589793d0
+  !-------------------------------------------------------------------------! 
+  INTENT(IN)    :: MESH, BND, MaterialVal 
+  INTENT(INOUT) :: DISC,EQN
+  !-------------------------------------------------------------------------! 
+
+    !call  checkNcError(nf90_open('InvertedSlip_NZfinerfault_OF-dtc1-v2_dev.32.nc', NF90_NOWRITE, ncid))
+    call  checkNcError(nf90_open('InvertedSlip_NZofTRIM-dtc1-v2-vm.32.nc', NF90_NOWRITE, ncid))
+  !read description
+  call checkNcError(nf90_get_att(ncid, nf90_global, 'description', desc))
+  logError(*) desc
+  ! Get the varid of the data variable, based on its name, and read the data
+  call  checkNcError(nf90_inq_dimid(ncid, "nPartitions", dimid))
+  call  checkNcError(nf90_inquire_dimension(ncid, dimid, dimname, nPartitions))
+  call  checkNcError(nf90_inq_dimid(ncid, "nElements", dimid))
+  call  checkNcError(nf90_inquire_dimension(ncid, dimid, dimname, nElements))
+  logError(*) 'nPartitions,nElements', nPartitions, nElements
+
+  !dimensions in fortran are inverted
+  ALLOCATE(StrikeSlip(nElements, nPartitions))
+  ALLOCATE(DipSlip(nElements, nPartitions))
+  ALLOCATE(nFaces(nPartitions))
+  StrikeSlip(:,:)=0d0
+  DipSlip(:,:)=0d0
+  nFaces(:)=0
+
+  call  checkNcError(nf90_inq_varid(ncid, "StrikeSlip", varid))
+  call  checkNcError(nf90_get_var(ncid, varid, StrikeSlip))
+  call  checkNcError(nf90_inq_varid(ncid, "DipSlip", varid))
+  call  checkNcError(nf90_get_var(ncid, varid, DipSlip))
+  call  checkNcError(nf90_inq_varid(ncid, "nFaces", varid))
+  call  checkNcError(nf90_get_var(ncid, varid, nFaces))
+
+
+  Rnuc = DISC%DynRup%R_crit
+  hypox = DISC%DynRup%XHypo
+  hypoy = DISC%DynRup%YHypo
+  hypoz = DISC%DynRup%ZHypo
+
+  ALLOCATE(  DISC%DynRup%RS_a_array(DISC%Galerkin%nBndGP,MESH%Fault%nSide)        )
+  ALLOCATE(  DISC%DynRup%RS_srW_array(DISC%Galerkin%nBndGP,MESH%Fault%nSide)      )
+  allocate(EQN%NucleationStressInFaultCS(DISC%Galerkin%nBndGP,6,MESH%Fault%nSide))
+
+ 
+  sigmazz=-2670 * 9.8 *10d3 
+  !most favorable direction (A4, AM2003)
+  Phi = pi/4d0-0.5d0*atan(DISC%DynRup%RS_f0)
+  g = 9.8D0    
+
+  !! First setting up the nucelation stress !!
+  CALL STRESS_STR_DIP_SLIP_AM(DISC,EQN%Bulk_yy_0, EQN%Bulk_zz_0, sigmazz, 0.0e6, EQN%ShearXZ_0, .False., EQN%ShearXY_0, bii)
+  bii = bii/bii(3)
+  b11=bii(1);b22=bii(2);b33=bii(3);b12=bii(4);b23=bii(5);b13=bii(6)
+  Pf = -1000D0 * g * hypoz
+  P = 2670d0*g* hypoz
+  Omega=1d0
+
+  DISC%DynRup%NucBulk_zz_0  =  P*b33
+  DISC%DynRup%NucBulk_xx_0  =  Omega*(b11*(P+Pf)-Pf)+(1d0-Omega)*P
+  DISC%DynRup%NucBulk_yy_0  =  Omega*(b22*(P+Pf)-Pf)+(1d0-Omega)*P
+  DISC%DynRup%NucShearXY_0  =  Omega*(b12*(P+Pf))
+  DISC%DynRup%NucShearXZ_0  =  Omega*(b13*(P+Pf))
+  DISC%DynRup%NucShearYZ_0  =  Omega*(b23*(P+Pf))
+  DISC%DynRup%NucBulk_xx_0  =  DISC%DynRup%NucBulk_xx_0 + Pf
+  DISC%DynRup%NucBulk_yy_0  =  DISC%DynRup%NucBulk_yy_0 + Pf
+  DISC%DynRup%NucBulk_zz_0  =  DISC%DynRup%NucBulk_zz_0 + Pf
+
+  ! velocity weakening to strengthening at shallow depth
+  zADecreaseStart = 1.5d3
+  zADecreaseStop = -4.0d3
+  zADecreaseWidth = zADecreaseStart-zADecreaseStop
+  RS_a_inc = 0.01d0
+  RS_srW_inc = 0.0
+
+  ! Loop over every mesh element
+  DO i = 1, MESH%Fault%nSide
+       
+      ! switch for rupture front output: RF
+      IF (DISC%DynRup%RF_output_on == 1) THEN
+          ! rupture front output just for + side elements!
+          IF (MESH%FAULT%Face(i,1,1) .NE. 0) DISC%DynRup%RF(:,i) = .TRUE.
+      ENDIF
+      
+      ! element ID    
+      iElem = MESH%Fault%Face(i,1,1)
+      iSide = MESH%Fault%Face(i,2,1)  
+      
+      EQN%IniBulk_xx(i,:)  =  EQN%Bulk_xx_0
+      EQN%IniBulk_yy(i,:)  =  EQN%Bulk_yy_0
+      EQN%IniBulk_zz(i,:)  =  EQN%Bulk_zz_0
+      EQN%IniShearXY(i,:)  =  EQN%ShearXY_0
+      EQN%IniShearYZ(i,:)  =  EQN%ShearYZ_0
+      EQN%IniShearXZ(i,:)  =  EQN%ShearXZ_0
+
+      ! ini frictional parameters
+      EQN%IniStateVar(i,:) =  EQN%RS_sv0
+      DISC%DynRup%RS_a_array(:,i) = DISC%DynRup%RS_a
+      DISC%DynRup%RS_srW_array(:,i) = DISC%DynRup%RS_srW
+            
+      ! Gauss node coordinate definition and stress assignment
+      ! get vertices of complete tet
+      IF (MESH%Fault%Face(i,1,1) == 0) THEN
+          ! iElem is in the neighbor domain
+          ! The neighbor element belongs to a different MPI domain
+          iNeighbor           = MESH%Fault%Face(i,1,2)          ! iNeighbor denotes "-" side
+          iLocalNeighborSide  = MESH%Fault%Face(i,2,2)
+          iObject  = MESH%ELEM%BoundaryToObject(iLocalNeighborSide,iNeighbor)
+          MPIIndex = MESH%ELEM%MPINumber(iLocalNeighborSide,iNeighbor)
+          !
+          xV(1:4) = BND%ObjMPI(iObject)%NeighborCoords(1,1:4,MPIIndex)
+          yV(1:4) = BND%ObjMPI(iObject)%NeighborCoords(2,1:4,MPIIndex)
+          zV(1:4) = BND%ObjMPI(iObject)%NeighborCoords(3,1:4,MPIIndex)
+      ELSE
+          !
+          ! get vertices
+          xV(1:4) = MESH%VRTX%xyNode(1,MESH%ELEM%Vertex(1:4,iElem))
+          yV(1:4) = MESH%VRTX%xyNode(2,MESH%ELEM%Vertex(1:4,iElem))
+          zV(1:4) = MESH%VRTX%xyNode(3,MESH%ELEM%Vertex(1:4,iElem))
+      ENDIF
+      Zover2 = dsqrt(MaterialVal(iElem,2) * MaterialVal(iElem,1))*0.5d0
+
+      DO iBndGP = 1,DISC%Galerkin%nBndGP
+          !
+          ! Transformation of boundary GP's into XYZ coordinate system
+          chi  = MESH%ELEM%BndGP_Tri(1,iBndGP)
+          tau  = MESH%ELEM%BndGP_Tri(2,iBndGP)
+          CALL TrafoChiTau2XiEtaZeta(xi,eta,zeta,chi,tau,iSide,0)
+          CALL TetraTrafoXiEtaZeta2XYZ(xGP,yGP,zGP,xi,eta,zeta,xV,yV,zV)
+
+          ShapeNucleation=0d0
+          radius=SQRT((xGP-hypox)**2+(yGP-hypoy)**2+(zGP-hypoz)**2)
+          IF (radius.LT.Rnuc) THEN
+             ShapeNucleation=EXP(radius**2/(radius**2-Rnuc**2))
+          ENDIF
+        
+         !Rotate nucleation stress in fault coordinate system
+          normal   = MESH%Fault%geoNormals( 1:3, i)
+          tangent1 = MESH%Fault%geoTangent1(1:3, i)
+          tangent2 = MESH%Fault%geoTangent2(1:3, i)
+          CALL RotationMatrix3D(normal, tangent1, tangent2, T(:,:), iT(:,:), EQN)
+          bii(1)=DISC%DynRup%NucBulk_xx_0
+          bii(2)=DISC%DynRup%NucBulk_yy_0
+          bii(3)=DISC%DynRup%NucBulk_zz_0
+          bii(4)=DISC%DynRup%NucShearXY_0
+          bii(5)=DISC%DynRup%NucShearYZ_0
+          bii(6)=DISC%DynRup%NucShearXZ_0    
+          bii = MATMUL(iT(1:6,1:6), bii(:)) * ShapeNucleation
+          EQN%NucleationStressInFaultCS(iBndGP,:,i) = bii
+
+          Pf = -0000D0 * g * min(zGP,-1500d0)
+          P = 2670d0*g*min(zGP,-1500d0)
+          
+          bii(1)= P+Pf
+          bii(2)= P+pf
+          bii(3)= P+Pf
+          bii(4)=strikeSlip(i,myrank+1) * Zover2
+          bii(5)=0d0
+          bii(6)=dipSlip(i,myrank+1) * Zover2
+
+         !Rotate stress from normal,strike,dip coordinate system to xyz
+          NormalVect_n   = MESH%Fault%geoNormals( 1:3, i)
+          strike_vector(1) = NormalVect_n(2)/sqrt(NormalVect_n(1)**2+NormalVect_n(2)**2)
+          strike_vector(2) = -NormalVect_n(1)/sqrt(NormalVect_n(1)**2+NormalVect_n(2)**2)
+          strike_vector(3) = 0.0D0
+          dip_vector = NormalVect_n .x. strike_vector
+          dip_vector = dip_vector / sqrt(dip_vector(1)**2+dip_vector(2)**2+dip_vector(3)**2)
+          CALL RotationMatrix3D(normal, strike_vector, dip_vector, T(:,:), iT(:,:), EQN)
+          bii = MATMUL(T(1:6,1:6), bii(:)) 
+
+          EQN%IniBulk_xx(i,iBndGP)  =  bii(1)
+          EQN%IniBulk_yy(i,iBndGP)  =  bii(2)
+          EQN%IniBulk_zz(i,iBndGP)  =  bii(3)
+          EQN%IniShearXY(i,iBndGP)  =  bii(4)
+          EQN%IniShearXZ(i,iBndGP)  =  bii(5)
+          EQN%IniShearYZ(i,iBndGP)  =  bii(6)
+ 
+          !Define velocity strengthening zone
+          IF (zGP.GE.zADecreaseStart) THEN
+             Rz = 1d0
+          ELSE IF (zGP.GE.zADecreaseStop) THEN
+             x = (zGP-zADecreaseStop)/zADecreaseWidth
+             !Rz = (3d0*x**2-2d0*x**3)
+             Rz = x
+          ELSE
+             Rz=0d0
+          ENDIF
+
+          !Increase RS_srW_inc only in the North (it impacts the HFZ CCFZ rupture transistion)
+          xR1=6.18d6
+          yR1=-3.91d6
+          xR2=xR1+15d3
+          yR2=yR1+15d3
+
+          IF ((yGP-yR1).LT.(-xGP+XR1)) THEN
+             alpha = 0d0
+          ELSE IF ((yGP-yR2).LT.(-xGP+XR2)) THEN
+             alpha = ((yGP+xGP)-(yR1+xR1))/((yR2+xR2)-(yR1+xR1))
+          ELSE 
+             alpha = 1d0
+          ENDIF
+          RS_srW_inc = alpha
+
+          DISC%DynRup%RS_a_array(iBndGP,i) = DISC%DynRup%RS_a+RS_a_inc*Rz
+          DISC%DynRup%RS_srW_array(iBndGP,i)=DISC%DynRup%RS_srW+RS_srW_inc*Rz
+
+      ENDDO ! iBndGP          
+                
+  ENDDO !    MESH%Fault%nSide
+  END SUBROUTINE background_NZKaikoura_RS_fromInv
+
+
   SUBROUTINE background_NZKaikoura_StressFromSlip (DISC,EQN,MESH,BND)
   !-------------------------------------------------------------------------!
   USE DGBasis_mod
@@ -4244,7 +4501,6 @@ MODULE ini_model_DR_mod
       ! element ID    
       iElem = MESH%Fault%Face(i,1,1)
       iSide = MESH%Fault%Face(i,2,1)  
-            
       ! Gauss node coordinate definition and stress assignment
       ! get vertices of complete tet
       IF (MESH%Fault%Face(i,1,1) == 0) THEN
@@ -4285,7 +4541,8 @@ MODULE ini_model_DR_mod
 
    !2. Read the projected data from the python scripts 
    
-   call  checkNcError(nf90_open('InvertedSlip_NZfinerfault_OF-dtc1-v2_dev.32.nc', NF90_NOWRITE, ncid))
+   !call  checkNcError(nf90_open('InvertedSlip_NZfinerfault_OF-dtc1-v2_dev.32.nc', NF90_NOWRITE, ncid))
+   call  checkNcError(nf90_open('InvertedSlip_NZofTRIM-dtc1-v2-vm.32.nc', NF90_NOWRITE, ncid))
    !read description
    call checkNcError(nf90_get_att(ncid, nf90_global, 'description', desc))
    logError(*) desc

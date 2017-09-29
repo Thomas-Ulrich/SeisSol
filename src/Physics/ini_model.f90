@@ -1654,9 +1654,9 @@ CONTAINS
              endif
           endif
 
-          if ((az.LE.1000.).OR.(az.GE.14000.)) THEN
-            logError(*) MaterialVal(iElem,1:3)
-          endif
+          !if ((az.LE.1000.).OR.(az.GE.14000.)) THEN
+          !  logError(*) MaterialVal(iElem,1:3)
+          !endif
           ENDDO
 #endif
         IF (EQN%Plasticity.EQ.1) THEN
@@ -1882,7 +1882,7 @@ CONTAINS
 
       IF(EQN%DR.EQ.1) THEN
 
-        CALL DR_setup(EQN,DISC,MESH,IO,BND)
+        CALL DR_setup(EQN,DISC,MESH,IO,BND,MaterialVal)
 
       ENDIF ! EQN%DR.EQ.1
 
