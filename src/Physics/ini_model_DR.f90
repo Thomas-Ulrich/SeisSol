@@ -4123,7 +4123,7 @@ MODULE ini_model_DR_mod
           ELSE IF ((yGP-yR2).LT.(-xGP+XR2)) THEN
              alpha = ((yGP+xGP)-(yR1+xR1))/((yR2+xR2)-(yR1+xR1))
           ELSE 
-             Rz = 1d0
+             alpha = 1d0
           ENDIF
           Rz = Rz /(1d0+4d0*alpha)
 
