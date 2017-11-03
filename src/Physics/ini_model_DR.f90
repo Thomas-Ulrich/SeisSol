@@ -3946,17 +3946,15 @@ MODULE ini_model_DR_mod
   allocate(EQN%NucleationStressInFaultCS(DISC%Galerkin%nBndGP,6,MESH%Fault%nSide))
 
  
-  sigmazz=-2670 * 9.8 *10d3 
-  !most favorable direction (A4, AM2003)
-  Phi = pi/4d0-0.5d0*atan(DISC%DynRup%RS_f0)
   g = 9.8D0    
+  Pf = -2000D0 * g * hypoz
+  P = 2670d0*g* hypoz
+  sigmazz = abs(P+Pf)
 
   !! First setting up the nucelation stress !!
   CALL STRESS_STR_DIP_SLIP_AM(DISC,EQN%Bulk_yy_0, EQN%Bulk_zz_0, sigmazz, 0.0e6, EQN%ShearXZ_0, .False., EQN%ShearXY_0, bii)
   bii = bii/bii(3)
   b11=bii(1);b22=bii(2);b33=bii(3);b12=bii(4);b23=bii(5);b13=bii(6)
-  Pf = -1000D0 * g * hypoz
-  P = 2670d0*g* hypoz
   Omega=1d0
 
   DISC%DynRup%NucBulk_zz_0  =  P*b33
@@ -4133,6 +4131,7 @@ MODULE ini_model_DR_mod
              endif
           endif
 
+          sigmazz = (2670d0-2000D0) * g * 10d3
           CALL STRESS_STR_DIP_SLIP_AM(DISC,EQN%Bulk_yy_0-tosubstract, EQN%Bulk_zz_0, sigmazz, 0.0e6, EQN%Bulk_xx_0*Rz, .False., EQN%ShearXY_0, bii)
           bii = bii/bii(3)
           b11=bii(1);b22=bii(2);b33=bii(3);b12=bii(4);b23=bii(5);b13=bii(6)
@@ -4162,6 +4161,7 @@ MODULE ini_model_DR_mod
              Rz=0d0
           ENDIF
 
+          !The following increase in not effective as RS_srW_inc==0
           !Increase RS_srW_inc only in the North (it impacts the HFZ CCFZ rupture transistion)
           xR1=6.18d6
           yR1=-3.91d6

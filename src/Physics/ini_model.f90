@@ -137,6 +137,7 @@ CONTAINS
     REAL                            :: ax,ay,az
     REAL                            :: Phi, zADecreaseStart, zADecreaseStop, zADecreaseWidth, zStressIncreaseStart, zStressIncreaseStop, zStressIncreaseWidth
     REAL                            :: xGP, yGP, zGP, Sx, ratioRtopo, zStressDecreaseStart, zStressDecreaseStop, zStressDecreaseWidth, P0
+    REAL                            :: xR1,xR2,yR1,yR2,zStressIncreaseStart0,zStressIncreaseStop0,zStressDecreaseStart0,zStressDecreaseStop0,tosubstract
     INTEGER                         :: ncid, dimid, varid, i1,j1,k1
     REAL, ALLOCATABLE               :: x1(:), y1(:), z1(:), ThreeDvelmodel(:,:,:,:)
     character (200)                 :: dimname, desc
@@ -1660,26 +1661,21 @@ CONTAINS
           ENDDO
 #endif
         IF (EQN%Plasticity.EQ.1) THEN
-        sigmazz=-2670 * 9.8 *10e3
-        !most favorable direction (A4, AM2003)
-        Phi = pi/4d0-0.5d0*atan(DISC%DynRup%RS_f0)
         g = 9.8D0
+        sigmazz= (2670-2000) * g *10d3
 
-        ! velocity weakening to strengthening at shallow depth
-        zADecreaseStart = -1.5e3
-        zADecreaseStop = -2.5e3
-        zADecreaseWidth = zADecreaseStart-zADecreaseStop
-
-        !less Stress at shallow depth, then increase to peak R at seismogenic depth (stress concentrations),
+        !less Stress at shallow depth, then increase to peak R at seismogenic depth (stress concentrations), 
         !then R decrease to 0
-        zStressIncreaseStart = -7e3
-        zStressIncreaseStop = -10e3
-        zStressIncreaseWidth = zStressIncreaseStart - zStressIncreaseStop
+        zStressIncreaseStart0 = -7d3
+        zStressIncreaseStop0 = -10d3
+        zStressIncreaseWidth = zStressIncreaseStart0 - zStressIncreaseStop0
         ratioRtopo = 0.6
 
-        zStressDecreaseStart = -11e3
-        zStressDecreaseStop = -14e3
-        zStressDecreaseWidth = zStressDecreaseStart - zStressDecreaseStop
+        zStressDecreaseStart0 = -11d3
+        zStressDecreaseStop0 = -14d3
+        zStressDecreaseWidth = zStressDecreaseStart0 - zStressDecreaseStop0
+
+
 
         ! Loop over every mesh element
 
@@ -1687,6 +1683,27 @@ CONTAINS
             xGP = MESH%ELEM%xyBary(1,iElem) 
             yGP = MESH%ELEM%xyBary(2,iElem) 
             zGP = MESH%ELEM%xyBary(3,iElem) !average depth inside an element
+
+            !Lateral stress Heterogeneities
+            ! change seismogenic depth and rotate SHmax
+            xR1=6.18d6
+            yR1=-3.91d6
+            xR2=xR1+15d3
+            yR2=yR1+15d3
+
+            IF ((yGP-yR1).LT.(-xGP+XR1)) THEN
+               alpha=0d0
+            ELSE IF ((yGP-yR2).LT.(-xGP+XR2)) THEN
+               alpha = ((yGP+xGP)-(yR1+xR1))/((yR2+xR2)-(yR1+xR1))
+            ELSE 
+               alpha=1d0
+            ENDIF
+
+            zStressIncreaseStart = zStressIncreaseStart0 - 6d3*alpha
+            zStressIncreaseStop =  zStressIncreaseStop0 -6d3*alpha
+            zStressDecreaseStart = zStressDecreaseStart0 -6d3*alpha
+            zStressDecreaseStop = zStressDecreaseStop0 -6d3*alpha
+            tosubstract = 20d0*alpha
 
             !see Smoothstep function order 1 (e.g. wikipedia)
             IF (zGP.GE.zStressIncreaseStart) THEN
@@ -1708,19 +1725,34 @@ CONTAINS
                 Rz=0d0
             ENDIF
 
+            !Decrease of the stress magnitude is the NF region
+            xR1=6.22d6
+            yR1=-3.88d6
+            xR2=xR1+15d3
+            yR2=yR1+15d3
+  
+            IF ((yGP-yR1).LT.(-xGP+XR1)) THEN
+               alpha = 0d0
+            ELSE IF ((yGP-yR2).LT.(-xGP+XR2)) THEN
+               alpha = ((yGP+xGP)-(yR1+xR1))/((yR2+xR2)-(yR1+xR1))
+            ELSE 
+              alpha = 1d0
+            ENDIF
+            Rz = Rz /(1d0+4d0*alpha)
+
+
             CALL STRESS_STR_DIP_SLIP_AM(DISC,EQN%Bulk_yy_0, EQN%Bulk_zz_0, sigmazz, 0.0e6, EQN%Bulk_xx_0*Rz, .False., EQN%ShearXY_0, bii)
             bii = bii/bii(3)
             b11=bii(1);b22=bii(2);b33=bii(3);b12=bii(4);b23=bii(5);b13=bii(6)
 
             Omega = 1d0
-
             Pf = -2000D0 * g * min(zGP,-1500d0)
             P0 = 2670d0*g*min(zGP,-1500d0)
 
-          radius=SQRT((xGP-DISC%DynRup%XHypo)**2+(yGP-DISC%DynRup%YHypo)**2+(zGP-DISC%DynRup%ZHypo)**2)
-          IF (radius.LT.2d0*DISC%DynRup%R_crit) THEN
-             EQN%PlastCo(iElem) = 1e20
-          ENDIF
+            radius=SQRT((xGP-DISC%DynRup%XHypo)**2+(yGP-DISC%DynRup%YHypo)**2+(zGP-DISC%DynRup%ZHypo)**2)
+            IF (radius.LT.2d0*DISC%DynRup%R_crit) THEN
+               EQN%PlastCo(iElem) = 1e20
+            ENDIF
 
             EQN%IniStress(3,iElem)  =  P0*b33
             EQN%IniStress(1,iElem)  =  Omega*(b11*(P0+Pf)-Pf)+(1d0-Omega)*P0
