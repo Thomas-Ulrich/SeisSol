@@ -4086,10 +4086,10 @@ MODULE ini_model_DR_mod
              alpha=1d0
           ENDIF
 
-          zStressIncreaseStart = zStressIncreaseStart0 - 6d3*alpha
-          zStressIncreaseStop =  zStressIncreaseStop0 -6d3*alpha
-          zStressDecreaseStart = zStressDecreaseStart0 -6d3*alpha
-          zStressDecreaseStop = zStressDecreaseStop0 -6d3*alpha
+          zStressIncreaseStart = zStressIncreaseStart0 - 4d3*alpha
+          zStressIncreaseStop =  zStressIncreaseStop0 -4d3*alpha
+          zStressDecreaseStart = zStressDecreaseStart0 -4d3*alpha
+          zStressDecreaseStop = zStressDecreaseStop0 -4d3*alpha
           tosubstract = 20d0*alpha
 
           !Depth Dependance of stress magnitude
