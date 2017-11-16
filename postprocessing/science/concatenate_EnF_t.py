@@ -46,7 +46,7 @@ import time
 def loadEnF(args):
 #####function used for loading the data using pool_async
    i,q  = args
-   En = np.loadtxt(filelist[i], skiprows=1)
+   En = np.loadtxt(filelist[i], skiprows=skip_row[i])
    myres = np.zeros((2*ndt,))
    myres[0:ndt] =  np.repeat(En[:,1], int(round(dt[i]/dt0)))[0:ndt]
    myres[ndt:2*ndt] =  np.repeat(En[:,2], int(round(dt[i]/dt0)))[0:ndt]
@@ -66,17 +66,21 @@ print '%d files found' %len(filelist)
 
 tmax = sys.float_info.max
 dt=np.zeros(len(filelist))
+#to remove data
+skip_row=np.zeros(len(filelist), dtype=np.int32)
+
 for i, fname in enumerate(filelist):
    #check for tmax
    line = subprocess.check_output(['tail', '-1', fname])
    tmax = min(tmax, float(line.split()[0]))
    #check for dt
-   fid = open(fname)
-   fid.readline()
-   line = fid.readline()
-   line = fid.readline()
-   fid.close()
-   dt[i] = float(line.split()[0])
+   with open(fname) as fid:
+      for iline,ln in enumerate(fid):
+         if ln.startswith("  0.000000000000000E+000"):
+            line = next(fid)
+            dt[i] = float(line.split()[0])
+            skip_row[i]= iline
+            break
 
 dt0 = min(dt)
 print 'tfmin=%f, dtmin=%f' %(tmax,dt0)
