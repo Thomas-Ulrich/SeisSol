@@ -598,6 +598,40 @@ CONTAINS
         logInfo(*) '| ERROR: This material type is only used when plasticity is on.'
       ENDIF
       !
+  CASE(119) !Roughfaults, plasticity and Anelasticity
+ 
+      if (EQN%Anelasticity.EQ.1) THEN
+      logInfo0(*) 'Material properties are read from file : ', TRIM(EQN%MaterialFileName)
+      CALL OpenFile(                                        &
+            UnitNr       = IO%UNIT%other01                , &
+            Name         = EQN%MaterialFileName           , &
+            create       = .FALSE.                          )
+      logInfo(*) 'Reading material property file ...  '
+      READ(IO%UNIT%other01,'(i10,a)') EQN%nLayers, cdummy             ! Number of different material zones
+      READ(IO%UNIT%other01,'(i10,a)') EQN%nMechanisms, cdummy         ! Number of different attenuation mechanisms
+      logInfo(*) 'Model has ',EQN%nMechanisms,' attenuation mechanisms.'
+      READ(IO%UNIT%other01,*) EQN%FreqCentral                             ! Central frequency of the absorption band (in Hertz)
+      logInfo(*) 'with central frequency ',EQN%FreqCentral
+      READ(IO%UNIT%other01,*) EQN%FreqRatio                               ! The ratio between the maximum and minimum frequencies of our bandwidth
+      logInfo(*) 'and frequency ratio ',EQN%FreqRatio
+
+      EQN%nBackgroundVar  = 3 + EQN%nMechanisms * 4
+      EQN%nAneMaterialVar = 5        ! rho, mu, lambda, Qp, Qs
+      EQN%nVarTotal = EQN%nVar + EQN%nAneFuncperMech*EQN%nMechanisms                                                    !
+      EQN%AneMatIni = 4                                                  ! indicates where in MaterialVal begin the anelastic parameters 
+
+      ALLOCATE(EQN%MODEL(1:EQN%nLayers,EQN%nAneMaterialVar))
+      DO i = 1,EQN%nLayers
+           READ(IO%UNIT%other01,*) intDummy, EQN%MODEL(i,:)
+      ENDDO
+      CLOSE(IO%UNIT%other01)
+      else
+        logInfo0(*) 'Jacobians are globally constant with rho0, mu, lambda:'
+        logInfo0(*) ' rho0 = ', EQN%rho0     ! (1)
+        logInfo0(*) ' mu = ', EQN%mu       ! (2)
+        logInfo0(*) ' lambda = ', EQN%lambda   ! (3)
+      endif
+
   CASE(60,61,62) ! special case of 1D landers example
       !
       logInfo0(*) 'Material property zones are defined by SeisSol. '
