@@ -1400,7 +1400,7 @@ CONTAINS
     !Dynamic shear stress arrival output currently only for linear slip weakening friction laws
     IF (OutputMask(11).EQ.1) THEN
         SELECT CASE (EQN%FL)
-               CASE(2,6,13,16,17,29,30) !LSW friction law cases
+               CASE(2,6,13,16,17,29,30,302) !LSW friction law cases
                     !use only if RF_output=1
                     IF (OutputMask(10).EQ.1) THEN
                         ! set 'collecting DS time' to 1
@@ -1785,7 +1785,7 @@ CONTAINS
              ! all parameters are defined in input file of INITIAL VALUES
              DISC%DynRup%inst_healing = 0
              CONTINUE
-           CASE(30) !LSW with a smoothed rupture in a circular patch, used for example in TPV29/TPV30 and TPV26/TPV27
+           CASE(30,302) !LSW with a smoothed rupture in a circular patch, used for example in TPV29/TPV30 and TPV26/TPV27
              DISC%DynRup%Mu_D_ini = Mu_D_ini
              DISC%DynRup%Mu_S_ini = Mu_S_ini
              DISC%DynRup%D_C_ini  = D_C_ini

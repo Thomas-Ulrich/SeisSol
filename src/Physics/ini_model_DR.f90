@@ -450,7 +450,7 @@ MODULE ini_model_DR_mod
 
      ENDDO !    MESH%Fault%nSide
 
-     CASE(30) !smooth forced rupture for benchmarks like TPV29/30 and TPV26/27
+     CASE(30,302) !smooth forced rupture for benchmarks like TPV29/30 and TPV26/27
 
        ALLOCATE(  DISC%DynRup%D_C(DISC%Galerkin%nBndGP,MESH%Fault%nSide)       )
        ALLOCATE(  DISC%DynRup%Mu_S(DISC%Galerkin%nBndGP,MESH%Fault%nSide)      )
@@ -505,7 +505,11 @@ MODULE ini_model_DR_mod
             CALL TrafoChiTau2XiEtaZeta(xi,eta,zeta,chi,tau,iSide,0)
             CALL TetraTrafoXiEtaZeta2XYZ(xGp,yGp,zGp,xi,eta,zeta,xV,yV,zV)
 
-           r = SQRT((xGP-hypox)**2+(yGP-hypoy)**2+(zGP-hypoz)**2)
+           IF (EQN%FL.EQ.302) THEN
+              r = sqrt( (xGP-hypox)**2+(zGP-hypoz)**2)
+           ELSE
+              r = SQRT((xGP-hypox)**2+(yGP-hypoy)**2+(zGP-hypoz)**2)
+           ENDIF
 
            IF (r.LE.r_crit) THEN
               DISC%DynRup%forced_rupture_time(iBndGP,i) = r/(0.7d0*Vs)+(0.081d0*r_crit/(0.7d0*Vs))*(1d0/(1d0-(r/r_crit)*(r/r_crit))-1d0)
