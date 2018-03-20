@@ -276,6 +276,8 @@ CONTAINS
     REAL    :: xab(3), xac(3), grad2d(2,2), JacobiT2d(2,2)
     REAL, ALLOCATABLE  :: projected_RT(:)
     REAL    :: x,y,z,uz(1:3)                          !
+    real    :: KMalpha,KMbeta, KMgamma,InterpSR(2)
+    integer :: kt
 
     real, dimension( NUMBER_OF_BASIS_FUNCTIONS, NUMBER_OF_QUANTITIES ) :: DOFiElem_ptr ! no: it's not a pointer..
     real, dimension( NUMBER_OF_BASIS_FUNCTIONS, NUMBER_OF_QUANTITIES ) :: DOFiNeigh_ptr ! no pointer again
@@ -407,6 +409,28 @@ CONTAINS
              endif
              S_XY = S_XY + eta * EQN%NucleationStressInFaultCS(0,1,iFace)*Gnuc
              S_XZ = S_XZ + eta * EQN%NucleationStressInFaultCS(0,2,iFace)*Gnuc
+          endif
+
+          if (EQN%FL.eq.331) then
+             i = EQN%KMij(iBndGP,iFace,1)
+             j = EQN%KMij(iBndGP,iFace,2)
+             KMalpha =EQN%KMab(iBndGP,iFace,1)
+             KMbeta =EQN%KMab(iBndGP,iFace,2)
+             !find current timestep in the Kinematic model
+             IF (time.LE.((EQN%KMndt-1)*EQN%KMdt)) THEN
+                KMgamma = time - floor(time/EQN%KMdt)*EQN%KMdt
+                kt = floor(time/EQN%KMdt)+1
+
+                !interpolate SR in space and time
+                InterpSR(:) = (1d0-KMalpha)*(1d0-KMbeta)*(1d0-KMgamma)*EQN%KMSlipRate(:, i, j, kt)+(1d0-KMalpha)*(1d0-KMbeta)* KMgamma*EQN%KMSlipRate(:, i, j, kt+1) +&
+                              (1d0-KMalpha)*KMbeta*(1d0-KMgamma)*EQN%KMSlipRate(:, i, j+1, kt)+(1d0-KMalpha)*KMbeta*KMgamma*EQN%KMSlipRate(:, i, j+1, kt+1) +&
+                              KMalpha*(1d0-KMbeta)*(1d0-KMgamma)*EQN%KMSlipRate(:, i+1, j, kt)+KMalpha*(1d0-KMbeta)*KMgamma*EQN%KMSlipRate(:, i+1, j, kt+1) +&
+                              KMalpha*KMbeta*(1d0-KMgamma)*EQN%KMSlipRate(:, i+1, j+1, kt)+KMalpha*KMbeta*KMgamma*EQN%KMSlipRate(:, i+1, j+1, kt+1)
+             ELSE
+                InterpSR(:) = 0
+             ENDIF
+              S_XY = S_XY + eta * InterpSR(1)
+              S_XZ = S_XZ + eta * InterpSR(2)
           endif
           !
           ! Obtain values at output points

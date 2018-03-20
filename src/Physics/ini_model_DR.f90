@@ -101,6 +101,8 @@ MODULE ini_model_DR_mod
   PRIVATE :: background_NZKaikoura
   PRIVATE :: background_NZKaikoura_RS
   PRIVATE :: background_NZKaikoura_RS_fromInv
+  PRIVATE :: background_NZKaikoura_StressFromSlip
+  PRIVATE :: background_SIV_StressFromSlip
   !---------------------------------------------------------------------------!
   PRIVATE :: nucleation_STEP
   PRIVATE :: nucleation_SMOOTH_GP
@@ -249,6 +251,8 @@ MODULE ini_model_DR_mod
        CALL background_NZKaikoura_StressFromSlip(DISC,EQN,MESH,BND)
     CASE(125)
        CALL background_NZKaikoura_RS_fromInv(DISC,EQN,MESH,BND,MaterialVal)
+    CASE(126)
+       CALL background_SIV_StressFromSlip(DISC,EQN,MESH,BND)
     CASE(1201)
        CALL background_SUMATRA_GEO(DISC,EQN,MESH,BND)
     CASE(1202)
@@ -4612,6 +4616,181 @@ MODULE ini_model_DR_mod
   DISC%DynRup%cohesion = -1e40
                    
   END SUBROUTINE background_NZKaikoura_StressFromSlip
+
+
+  SUBROUTINE background_SIV_StressFromSlip (DISC,EQN,MESH,BND)
+  !-------------------------------------------------------------------------!
+  USE DGBasis_mod
+  use JacobiNormal_mod, only: RotationMatrix3D
+  USE common_operators_mod
+  USE netcdf
+  !-------------------------------------------------------------------------!
+  IMPLICIT NONE
+  !-------------------------------------------------------------------------!
+  TYPE(tDiscretization), target  :: DISC
+  TYPE(tEquations)               :: EQN
+  TYPE(tUnstructMesh)            :: MESH
+  TYPE (tBoundary)               :: BND
+  !-------------------------------------------------------------------------!
+  ! Local variable declaration
+  INTEGER                        :: i,j
+  INTEGER                        :: iSide,iElem,iBndGP
+  INTEGER                        :: iLocalNeighborSide,iNeighbor
+  INTEGER                        :: MPIIndex, iObject
+  INTEGER                        :: ncid, dimid, varid
+  INTEGER                        :: KMnRows, KMnColumns, KMndt, KMi,KMj
+  REAL                           :: xV(MESH%GlobalVrtxType),yV(MESH%GlobalVrtxType),zV(MESH%GlobalVrtxType)
+  REAL                           :: chi,tau
+  REAL                           :: xi, eta, zeta, XGp, YGp, ZGp
+  real                           :: dip_vector(3),strike_vector(3), crossprod(3)
+  real                           :: NormalVect_n(3), NormalVect_s(3), NormalVect_t(3)
+  REAL                           :: KMdt,KMds,KMdd,KMx0,KMy0,KMz0
+  REAL                           :: KMidouble, KMalpha, KMjdouble, KMbeta,XX0_normal
+  character (200)                :: dimname
+
+  !-------------------------------------------------------------------------! 
+  INTENT(IN)    :: MESH, BND 
+  INTENT(INOUT) :: DISC,EQN
+  !-------------------------------------------------------------------------! 
+
+   !1. Read the Kinematic model from the netcdf file
+   
+   !nRows and nColumns of points sources separed by KMds along strike and KMdd along dip
+   !the point of coordinates i,j=1,1 is located in (x0,y0,z0)
+   !for each point source,  the slip rate (in strike and dip direction) is given each KMdt for a duration of KMdt*KMndt
+
+   call  checkNcError(nf90_inq_dimid(ncid, "nRows", dimid))
+   call  checkNcError(nf90_inquire_dimension(ncid, dimid, dimname, KMnRows))
+   call  checkNcError(nf90_inq_dimid(ncid, "nColumns", dimid))
+   call  checkNcError(nf90_inquire_dimension(ncid, dimid, dimname, KMnColumns))
+   call  checkNcError(nf90_inq_dimid(ncid, "ndt", dimid))
+   call  checkNcError(nf90_inquire_dimension(ncid, dimid, dimname, KMndt))
+   call  checkNcError(nf90_inq_varid(ncid, "dt", varid))
+   call  checkNcError(nf90_get_var(ncid, varid, KMdt))
+   call  checkNcError(nf90_inq_varid(ncid, "ds", varid))
+   call  checkNcError(nf90_get_var(ncid, varid, KMds))
+   call  checkNcError(nf90_inq_varid(ncid, "dd", varid))
+   call  checkNcError(nf90_get_var(ncid, varid, KMdd))
+   call  checkNcError(nf90_inq_varid(ncid, "x0", varid))
+   call  checkNcError(nf90_get_var(ncid, varid, KMx0))
+   call  checkNcError(nf90_inq_varid(ncid, "y0", varid))
+   call  checkNcError(nf90_get_var(ncid, varid, KMy0))
+   call  checkNcError(nf90_inq_varid(ncid, "z0", varid))
+   call  checkNcError(nf90_get_var(ncid, varid, KMz0))
+
+   ! /!\ dimensions in fortran are inverted
+   ! the +1 are to avoid any problem at array boundaries
+   allocate(EQN%KMSlipRate(2, KMnRows+1, KMnColumns+1, KMndt+1))
+   EQN%KMSlipRate(:,:,:,:) = 0d0
+
+   call  checkNcError(nf90_inq_varid(ncid, "StrikeSlipRate", varid))
+   call  checkNcError(nf90_get_var(ncid, varid, EQN%KMSlipRate(1,:,:,:)))
+   call  checkNcError(nf90_inq_varid(ncid, "DipSlipRate", varid))
+   call  checkNcError(nf90_get_var(ncid, varid, EQN%KMSlipRate(2,:,:,:)))
+   !logError(*) 'StrikeSlipRate, DipSlipRate', EQN%KMSlipRate(1,100,10,2), EQN%KMSlipRate(2,100,10,2)
+
+  EQN%KMndt=KMndt
+  EQN%KMdt=KMdt
+
+  allocate(EQN%KMij(DISC%Galerkin%nBndGP,MESH%Fault%nSide,2))
+  allocate(EQN%KMab(DISC%Galerkin%nBndGP,MESH%Fault%nSide,2))
+  EQN%KMij(:,:,:)=0
+  EQN%KMab(:,:,:)=0d0
+
+    ! Compute strike and dip vector: moved outside the loop for this planar fault
+    i=1
+    NormalVect_n = MESH%Fault%geoNormals(1:3,i)
+    NormalVect_s = MESH%Fault%geoTangent1(1:3,i)
+    NormalVect_t = MESH%Fault%geoTangent2(1:3,i)
+
+    strike_vector(1) = NormalVect_n(2)/sqrt(NormalVect_n(1)**2+NormalVect_n(2)**2)
+    strike_vector(2) = -NormalVect_n(1)/sqrt(NormalVect_n(1)**2+NormalVect_n(2)**2)
+    strike_vector(3) = 0.0D0
+    dip_vector = NormalVect_n .x. strike_vector
+    dip_vector = dip_vector / sqrt(dip_vector(1)**2+dip_vector(2)**2+dip_vector(3)**2)
+
+  DO i = 1, MESH%Fault%nSide
+      !probably not necessary
+      EQN%IniBulk_xx(i,:)  =  EQN%Bulk_xx_0
+      EQN%IniBulk_yy(i,:)  =  EQN%Bulk_yy_0
+      EQN%IniBulk_zz(i,:)  =  EQN%Bulk_zz_0
+      EQN%IniShearXY(i,:)  =  EQN%ShearXY_0
+      EQN%IniShearYZ(i,:)  =  EQN%ShearYZ_0
+      EQN%IniShearXZ(i,:)  =  EQN%ShearXZ_0
+           
+      ! element ID    
+      iElem = MESH%Fault%Face(i,1,1)
+      iSide = MESH%Fault%Face(i,2,1)  
+      ! Gauss node coordinate definition and stress assignment
+      ! get vertices of complete tet
+      IF (MESH%Fault%Face(i,1,1) == 0) THEN
+          ! iElem is in the neighbor domain
+          ! The neighbor element belongs to a different MPI domain
+          iNeighbor           = MESH%Fault%Face(i,1,2)          ! iNeighbor denotes "-" side
+          iLocalNeighborSide  = MESH%Fault%Face(i,2,2)
+          iObject  = MESH%ELEM%BoundaryToObject(iLocalNeighborSide,iNeighbor)
+          MPIIndex = MESH%ELEM%MPINumber(iLocalNeighborSide,iNeighbor)
+          !
+          xV(1:4) = BND%ObjMPI(iObject)%NeighborCoords(1,1:4,MPIIndex)
+          yV(1:4) = BND%ObjMPI(iObject)%NeighborCoords(2,1:4,MPIIndex)
+          zV(1:4) = BND%ObjMPI(iObject)%NeighborCoords(3,1:4,MPIIndex)
+          !iSide = iLocalNeighborSide
+      ELSE
+          !
+          ! get vertices
+          xV(1:4) = MESH%VRTX%xyNode(1,MESH%ELEM%Vertex(1:4,iElem))
+          yV(1:4) = MESH%VRTX%xyNode(2,MESH%ELEM%Vertex(1:4,iElem))
+          zV(1:4) = MESH%VRTX%xyNode(3,MESH%ELEM%Vertex(1:4,iElem))
+      ENDIF
+      DO iBndGP = 1,DISC%Galerkin%nBndGP
+          !
+          ! Transformation of boundary GP's into XYZ coordinate system
+          chi  = MESH%ELEM%BndGP_Tri(1,iBndGP)
+          tau  = MESH%ELEM%BndGP_Tri(2,iBndGP)
+          CALL TrafoChiTau2XiEtaZeta(xi,eta,zeta,chi,tau,iSide,0)
+          CALL TetraTrafoXiEtaZeta2XYZ(xGP,yGP,zGP,xi,eta,zeta,xV,yV,zV)
+
+          !scalar product of x0x and dip_vector
+          KMidouble = ((xGP-KMx0)*dip_vector(1) + (yGP-KMy0)*dip_vector(2) + (zGP-KMz0)*dip_vector(3))/KMdd
+          KMi = floor(KMidouble)
+          KMalpha = KMidouble - KMi
+          KMi = KMi+1
+
+          !scalar product of x0x and strike_vector
+          KMjdouble = ((xGP-KMx0)*strike_vector(1) + (yGP-KMy0)*strike_vector(2))/KMds
+          KMj = floor(KMjdouble)
+          KMbeta = KMjdouble - KMj
+          KMj = KMj+1
+
+          EQN%KMij(iBndGP,i,1) = KMi
+          EQN%KMij(iBndGP,i,2) = KMj
+          EQN%KMab(iBndGP,i,1) = KMalpha
+          EQN%KMab(iBndGP,i,2) = KMbeta
+          !Some tests to avoid looking for bug for ages
+          IF ((KMalpha.LT.0).OR.(KMalpha.GT.1).OR.(KMbeta.LT.0).OR.(KMbeta.GT.1)) THEN
+             logError(*) 'problem detected: alpha or beta not in range 0..1', KMalpha, KMbeta
+             stop
+          ENDIF
+          IF ((KMi.LE.0).OR.(KMi.GT.KMnRows)) THEN
+             logError(*) 'problem detected: KMi not in range 0..KMnRows', KMi, KMnRows
+             stop
+          ENDIF
+          IF ((KMj.LE.0).OR.(KMj.GT.KMnColumns)) THEN
+             logError(*) 'problem detected: KMj not in range 0..KMnColumns', KMj, KMnColumns
+             stop
+          ENDIF
+          XX0_normal = abs((xGP-KMx0)*NormalVect_n(1) + (yGP-KMy0)*NormalVect_n(2) + (zGP-KMz0)*NormalVect_n(3))
+          if (XX0_normal>25.) THEN
+             logError(*) 'problem detected: P(x,y,z) to far from the fault',xGP,yGP,zGP,XX0_normal
+             stop
+          ENDIF
+
+      ENDDO ! iBndGP          
+  ENDDO !    MESH%Fault%nSide
+  DISC%DynRup%cohesion = -1e40
+                   
+  END SUBROUTINE background_SIV_StressFromSlip
+
 
   !> SCEC TPV3132 test case : strike slip rupture in layered medium
   !> T. ULRICH 02.2015

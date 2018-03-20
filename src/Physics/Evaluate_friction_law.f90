@@ -180,6 +180,14 @@ MODULE Eval_friction_law_mod
                                 rho,rho_neig,w_speed,w_speed_neig,         & ! IN: background values
                                 time,DeltaT,                               & ! IN: time
                                 DISC,EQN,MESH,MPI,IO)                 
+        CASE(331)
+           CALL StressFromSlipSIV(                                            & !
+                                TractionGP_XY,TractionGP_XZ,               & ! OUT: traction
+                                NorStressGP,XYStressGP,XZStressGP,         & ! IN: Godunov status
+                                iFace,iSide,iElem,nBndGP,nTimeGP,          & ! IN: element ID and GP lengths
+                                rho,rho_neig,w_speed,w_speed_neig,         & ! IN: background values
+                                time,DeltaT,                               & ! IN: time
+                                DISC,EQN,MESH,MPI,IO)        
 
         CASE(101) ! Specific conditions for SCEC TPV101
                       ! as case 3 (rate-and-state friction) aging law
@@ -815,6 +823,137 @@ MODULE Eval_friction_law_mod
 
 
   END SUBROUTINE StressFromSlip
+
+  !< T. Ulrich 20.03.18
+  !< This friction law allows imposing Slip rate on a dynamic rupture boundary 
+  SUBROUTINE StressFromSlipSIV(TractionGP_XY,TractionGP_XZ,       & ! OUT: traction
+                                   NorStressGP,XYStressGP,XZStressGP,         & ! IN: Godunov status
+                                   iFace,iSide,iElem,nBndGP,nTimeGP,          & ! IN: element ID and GP lengths
+                                   rho,rho_neig,w_speed,w_speed_neig,         & ! IN: background values
+                                   time,DeltaT,                               & ! IN: time
+                                   DISC,EQN,MESH,MPI,IO)
+    !-------------------------------------------------------------------------!
+    IMPLICIT NONE
+    !-------------------------------------------------------------------------!
+    TYPE(tEquations)               :: EQN
+    TYPE(tDiscretization), target  :: DISC
+    TYPE(tUnstructMesh)            :: MESH
+    TYPE(tMPI)                     :: MPI
+    TYPE(tInputOutput)             :: IO    
+    ! Local variable declaration
+    INTEGER     :: iBndGP,iTimeGP,nBndGP,nTimeGP
+    INTEGER     :: iFace,iSide,iElem
+    REAL        :: time
+    REAL        :: NorStressGP(nBndGP,nTimeGP)
+    REAL        :: XYStressGP(nBndGP,nTimeGP)
+    REAL        :: XZStressGP(nBndGP,nTimeGP)
+    REAL        :: TractionGP_XY(nBndGP,nTimeGP)
+    REAL        :: TractionGP_XZ(nBndGP,nTimeGP)
+    real        :: LocTracXY(nBndGP)
+    real        :: LocTracXZ(nBndGP)
+    real        :: tmpSlip(nBndGP)
+    real        :: P(nBndGP)
+    real        :: Strength(nBndGP), ShTest(nBndGP)
+    real        :: LocSR(nBndGP)
+    real        :: srFactor
+    REAL        :: rho,rho_neig,w_speed(:),w_speed_neig(:)
+    REAL        :: time_inc
+    REAL        :: Deltat(1:nTimeGP)
+    REAL        :: t_0, Tnuc, Gnuc, Gnucprev, dt, prevtime
+    REAL        :: f1(nBndGP), f2(nBndGP)
+    real        :: tn, eta
+    real        :: KMalpha,KMbeta, KMgamma,InterpSR(2)
+    integer     :: i,j,kt
+    !-------------------------------------------------------------------------!
+    INTENT(IN)    :: NorStressGP,XYStressGP,XZStressGP,iFace,iSide,iElem
+    INTENT(IN)    :: rho,rho_neig,w_speed,w_speed_neig,time,nBndGP,nTimeGP,DeltaT
+    INTENT(IN)    :: MESH,MPI,IO
+    INTENT(INOUT) :: EQN, DISC,TractionGP_XY,TractionGP_XZ
+    !-------------------------------------------------------------------------! 
+    Tnuc = DISC%DynRup%t_0
+    tmpSlip = 0.0D0
+
+    eta = (w_speed(2)*rho*w_speed_neig(2)*rho_neig) / (w_speed(2)*rho + w_speed_neig(2)*rho_neig)
+    tn = time
+    
+    dt = sum(DeltaT(:))
+    
+    i = EQN%KMij(iBndGP,iFace,1)
+    j = EQN%KMij(iBndGP,iFace,2)
+    KMalpha =EQN%KMab(iBndGP,iFace,1)
+    KMbeta =EQN%KMab(iBndGP,iFace,2)
+
+    do iTimeGP=1,nTimeGP
+      time_inc = DeltaT(iTimeGP)
+
+      !find current timestep in the Kinematic model
+      IF (time.LE.((EQN%KMndt-1)*EQN%KMdt)) THEN
+         KMgamma = time - floor(time/EQN%KMdt)*EQN%KMdt
+         kt = floor(time/EQN%KMdt)+1
+
+         !interpolate SR in space and time
+         InterpSR(:) = (1d0-KMalpha)*(1d0-KMbeta)*(1d0-KMgamma)*EQN%KMSlipRate(:, i, j, kt)+(1d0-KMalpha)*(1d0-KMbeta)* KMgamma*EQN%KMSlipRate(:, i, j, kt+1) +&
+                       (1d0-KMalpha)*KMbeta*(1d0-KMgamma)*EQN%KMSlipRate(:, i, j+1, kt)+(1d0-KMalpha)*KMbeta*KMgamma*EQN%KMSlipRate(:, i, j+1, kt+1) +&
+                       KMalpha*(1d0-KMbeta)*(1d0-KMgamma)*EQN%KMSlipRate(:, i+1, j, kt)+KMalpha*(1d0-KMbeta)*KMgamma*EQN%KMSlipRate(:, i+1, j, kt+1) +&
+                       KMalpha*KMbeta*(1d0-KMgamma)*EQN%KMSlipRate(:, i+1, j+1, kt)+KMalpha*KMbeta*KMgamma*EQN%KMSlipRate(:, i+1, j+1, kt+1)
+      ELSE
+         InterpSR(:) = 0
+      ENDIF
+
+      !EQN%NucleationStressInFaultCS (1 and 2) contains the slip in FaultCS
+      LocTracXY(:)  = XYStressGP(:,iTimeGP) + eta * InterpSR(1)
+      LocTracXZ(:) =  XZStressGP(:,iTimeGP) + eta * InterpSR(2)
+
+      ! Update slip rate (notice that LocSR(T=0)=-2c_s/mu*s_xy^{Godunov} is the slip rate caused by a free surface!)
+      DISC%DynRup%SlipRate1(:,iFace)     = EQN%NucleationStressInFaultCS(:,1,iFace)*Gnuc
+      DISC%DynRup%SlipRate2(:,iFace)     = EQN%NucleationStressInFaultCS(:,2,iFace)*Gnuc
+      LocSR                              = SQRT(DISC%DynRup%SlipRate1(:,iFace)**2 + DISC%DynRup%SlipRate2(:,iFace)**2)
+      
+      ! Update slip
+      DISC%DynRup%Slip1(:,iFace) = DISC%DynRup%Slip1(:,iFace) + DISC%DynRup%SlipRate1(:,iFace)*time_inc
+      DISC%DynRup%Slip2(:,iFace) = DISC%DynRup%Slip2(:,iFace) + DISC%DynRup%SlipRate2(:,iFace)*time_inc
+      DISC%DynRup%Slip(:,iFace)  = DISC%DynRup%Slip(:,iFace)  + LocSR(:)*time_inc      
+      tmpSlip = tmpSlip(:) + LocSR(:)*time_inc
+      
+     TractionGP_XY(:,iTimeGP) = LocTracXY(:)
+     TractionGP_XZ(:,iTimeGP) = LocTracXZ(:)      
+    enddo
+
+     ! output rupture front 
+     ! outside of iTimeGP loop in order to safe an 'if' in a loop
+     ! this way, no subtimestep resolution possible
+    where (DISC%DynRup%RF(:,iFace) .AND. LocSR .GT. 0.001D0)
+      DISC%DynRup%rupture_time(:,iFace)=time
+      DISC%DynRup%RF(:,iFace) = .FALSE.
+    end where
+
+    !output time when shear stress is equal to the dynamic stress after rupture arrived
+    !currently only for linear slip weakening
+    !where ( (DISC%DynRup%rupture_time(:,iFace) .GT. 0.0) .AND. &
+    !        (DISC%DynRup%rupture_time(:,iFace) .LE. time) .AND. &
+    !         DISC%DynRup%DS(:,iFace) .AND. &
+    !        (ABS(DISC%DynRup%Slip(:,iFace)) .GE. DISC%DynRup%D_C(:,iFace)))
+    !  DISC%DynRup%dynStress_time(:,iFace)=time
+    !  DISC%DynRup%DS(:,iFace) = .FALSE.
+    !end where
+
+    where (LocSR(:).GT.DISC%DynRup%PeakSR(:,iFace))
+      DISC%DynRup%PeakSR(:,iFace) = LocSR
+    end where
+
+    DISC%DynRup%TracXY(:,iFace)    = LocTracXY
+    DISC%DynRup%TracXZ(:,iFace)    = LocTracXZ
+
+    !---compute and store slip to determine the magnitude of an earthquake ---
+    !    to this end, here the slip is computed and averaged per element
+    !    in calc_seissol.f90 this value will be multiplied by the element surface
+    !    and an output happened once at the end of the simulation
+    IF (DISC%DynRup%magnitude_out(iFace)) THEN
+        DISC%DynRup%averaged_Slip(iFace) = DISC%DynRup%averaged_Slip(iFace) + sum(tmpSlip)/nBndGP
+    ENDIF
+
+
+  END SUBROUTINE StressFromSlipSIV
 
 
   !> friction case 3,4: rate and state friction

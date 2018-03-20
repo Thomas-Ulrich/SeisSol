@@ -1218,6 +1218,12 @@ MODULE TypesDef
      REAL, allocatable                      :: IniShearXZ(:,:)                  !< Initial shear stress at fault
      real, allocatable                      :: InitialStressInFaultCS(:,:,:)
      real, allocatable                      :: NucleationStressInFaultCS(:,:,:)
+     !variables for StressFromSlip and SIV
+     real, allocatable                      :: KMSlipRate(:,:,:,:)
+     INTEGER, allocatable                   :: KMij(:,:,:)
+     real, allocatable                      :: KMab(:,:,:)
+     real                                   :: KMdt
+     INTEGER                                :: KMndt
      REAL, allocatable                      :: IniMu(:,:)                       !< Initial friction coefficient at fault
      REAL, allocatable                      :: IniStateVar(:,:)                 !< Initial state variable value at fault
      REAL                                   :: IniSlipRate1                     !< Initial slip rate value at fault
