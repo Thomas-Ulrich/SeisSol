@@ -1943,9 +1943,9 @@ MODULE ini_model_DR_mod
   TYPE(tDiscretization), target  :: DISC
   LOGICAL                        :: DipSlipFaulting
   REAL                           :: strike, dip, sigmazz, cohesion, R
-  REAL                           :: strike_rad, dip_rad
+  REAL                           :: strike_rad, dip_rad, rake_rad, rake
   REAL                           :: c2,s2,Phi,c2bis,mu_dy,mu_st
-  REAL                           :: ds, sm, phi_xyz,c,s
+  REAL                           :: ds, sm, phi_xyz,c,s, alpha
   REAL                           :: sii(3), Stress(3,3), R1(3,3), R2(3,3), R3(3,3), Stress_cartesian_norm(3,3)
   REAL                           :: bii(6),P,s2ratio
   REAL, PARAMETER                :: pi = 3.141592653589793d0
@@ -1964,15 +1964,23 @@ MODULE ini_model_DR_mod
   c2=cos(2d0*Phi)
   strike_rad = strike*pi/180d0
   dip_rad = dip*pi/180d0
+  rake=0d0
+  rake_rad = rake*pi/180d0
+  alpha = (2d0*s2ratio-1d0)/3d0
 
   IF (.NOT.DipSlipFaulting) THEN
-      P=sigmazz;
-      !ds (delta_sigma) is computed assuming that P=sigzz (A6, Aochi and Madariaga 2003)
-      ds =  (mu_dy * P + R*(cohesion + (mu_st-mu_dy)*P)) / (s2 + mu_dy*c2 + R*(mu_st-mu_dy)*c2)
-      sm=P;
-      sii(1)= P + ds
-      sii(2)= P - ds + 2d0*ds*s2ratio
-      sii(3)= P - ds
+      !in case of Strike Slip faulting s_zz in actually the effective confining stress = sum(sii)/3 -Pf
+      ds =  (mu_dy * sigmazz + R*(cohesion + (mu_st-mu_dy)*sigmazz)) / (s2 + mu_dy*(alpha+c2) + R*(mu_st-mu_dy)*(alpha+c2))
+      sm=sigmazz
+      sii(1)= sm + ds
+      sii(2)= sm - ds + 2d0*ds*s2ratio
+      sii(3)= sm - ds
+
+      !first rotation: of axis U_n
+      phi_xyz=rake_rad
+      c=cos(phi_xyz)
+      s=sin(phi_xyz)
+      R0= transpose(reshape((/ c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0 /), shape(R0)))
 
       !first rotation: of axis U_t
       phi_xyz=Phi
@@ -1993,7 +2001,7 @@ MODULE ini_model_DR_mod
       R3= transpose(reshape((/ c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0 /), shape(R3)))
 
       Stress = transpose(reshape((/ sii(2), 0.0, 0.0, 0.0, sii(1), 0.0, 0.0, 0.0, sii(3) /), shape(Stress)))
-      Stress_cartesian_norm = MATMUL(R3,MATMUL(R2,MATMUL(R1,MATMUL(Stress,MATMUL(TRANSPOSE(R1),MATMUL(TRANSPOSE(R2),TRANSPOSE(R3)))))))/sigmazz
+      Stress_cartesian_norm = MATMUL(R3,MATMUL(R2,MATMUL(R1,MATMUL(R0,MATMUL(Stress,MATMUL(TRANSPOSE(R0), MATMUL(TRANSPOSE(R1),MATMUL(TRANSPOSE(R2),TRANSPOSE(R3)))))))))
 
   ELSE
       c2bis = c2 - cos(2d0*(Phi-dip_rad))
