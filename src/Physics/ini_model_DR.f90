@@ -4667,6 +4667,7 @@ MODULE ini_model_DR_mod
    !the point of coordinates i,j=1,1 is located in (x0,y0,z0)
    !for each point source,  the slip rate (in strike and dip direction) is given each KMdt for a duration of KMdt*KMndt
 
+   call  checkNcError(nf90_open('dynmod_sv.nc', NF90_NOWRITE, ncid))
    call  checkNcError(nf90_inq_dimid(ncid, "nRows", dimid))
    call  checkNcError(nf90_inquire_dimension(ncid, dimid, dimname, KMnRows))
    call  checkNcError(nf90_inq_dimid(ncid, "nColumns", dimid))
@@ -4685,6 +4686,7 @@ MODULE ini_model_DR_mod
    call  checkNcError(nf90_get_var(ncid, varid, KMy0))
    call  checkNcError(nf90_inq_varid(ncid, "z0", varid))
    call  checkNcError(nf90_get_var(ncid, varid, KMz0))
+   call  checkNcError(nf90_close(ncid))
 
    ! /!\ dimensions in fortran are inverted
    ! the +1 are to avoid any problem at array boundaries
