@@ -4686,7 +4686,6 @@ MODULE ini_model_DR_mod
    call  checkNcError(nf90_get_var(ncid, varid, KMy0))
    call  checkNcError(nf90_inq_varid(ncid, "z0", varid))
    call  checkNcError(nf90_get_var(ncid, varid, KMz0))
-   call  checkNcError(nf90_close(ncid))
 
    ! /!\ dimensions in fortran are inverted
    ! the +1 are to avoid any problem at array boundaries
@@ -4694,9 +4693,10 @@ MODULE ini_model_DR_mod
    EQN%KMSlipRate(:,:,:,:) = 0d0
 
    call  checkNcError(nf90_inq_varid(ncid, "StrikeSlipRate", varid))
-   call  checkNcError(nf90_get_var(ncid, varid, EQN%KMSlipRate(1,:,:,:)))
+   call  checkNcError(nf90_get_var(ncid, varid, EQN%KMSlipRate(1,1:KMnRows,1:KMnColumns,1:KMndt)))
    call  checkNcError(nf90_inq_varid(ncid, "DipSlipRate", varid))
-   call  checkNcError(nf90_get_var(ncid, varid, EQN%KMSlipRate(2,:,:,:)))
+   call  checkNcError(nf90_get_var(ncid, varid, EQN%KMSlipRate(2,1:KMnRows,1:KMnColumns,1:KMndt)))
+   call  checkNcError(nf90_close(ncid))
    !logError(*) 'StrikeSlipRate, DipSlipRate', EQN%KMSlipRate(1,100,10,2), EQN%KMSlipRate(2,100,10,2)
 
   EQN%KMndt=KMndt
