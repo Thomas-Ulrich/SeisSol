@@ -4801,15 +4801,6 @@ MODULE ini_model_DR_mod
 
       !compute cos and sin to project from strike,dip,rake to fault CS
       ! n,strike,dip -> XYZ -> fault CS
-      NormalVect_n = MESH%Fault%geoNormals(1:3,i)
-      NormalVect_s = MESH%Fault%geoTangent1(1:3,i)
-      NormalVect_t = MESH%Fault%geoTangent2(1:3,i)
-
-      strike_vector(1) = NormalVect_n(2)/sqrt(NormalVect_n(1)**2+NormalVect_n(2)**2)
-      strike_vector(2) = -NormalVect_n(1)/sqrt(NormalVect_n(1)**2+NormalVect_n(2)**2)
-      strike_vector(3) = 0.0D0
-      dip_vector = NormalVect_n .x. strike_vector
-      dip_vector = dip_vector / sqrt(dip_vector(1)**2+dip_vector(2)**2+dip_vector(3)**2)
 
       cos1 = dot_product(strike_vector(:),NormalVect_s(:))
       crossprod(:) = strike_vector(:) .x. NormalVect_s(:)

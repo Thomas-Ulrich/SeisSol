@@ -863,7 +863,7 @@ MODULE Eval_friction_law_mod
     REAL        :: t_0, Tnuc, Gnuc, Gnucprev, dt, prevtime
     REAL        :: f1(nBndGP), f2(nBndGP)
     real        :: tn, eta
-    real        :: KMalpha,KMbeta, KMgamma,InterpSR(2)
+    real        :: KMalpha,KMbeta, KMgamma,InterpSR(2),InterpSR_strdip(2)
     integer     :: i,j,kt
     !-------------------------------------------------------------------------!
     INTENT(IN)    :: NorStressGP,XYStressGP,XZStressGP,iFace,iSide,iElem
@@ -893,14 +893,14 @@ MODULE Eval_friction_law_mod
          kt = floor(time/EQN%KMdt)+1
 
          !interpolate SR in space and time
-         InterpSR(:) = (1d0-KMalpha)*(1d0-KMbeta)*(1d0-KMgamma)*EQN%KMSlipRate(:, i, j, kt)+(1d0-KMalpha)*(1d0-KMbeta)* KMgamma*EQN%KMSlipRate(:, i, j, kt+1) +&
+         InterpSR_strdip(:) = (1d0-KMalpha)*(1d0-KMbeta)*(1d0-KMgamma)*EQN%KMSlipRate(:, i, j, kt)+(1d0-KMalpha)*(1d0-KMbeta)* KMgamma*EQN%KMSlipRate(:, i, j, kt+1) +&
                        (1d0-KMalpha)*KMbeta*(1d0-KMgamma)*EQN%KMSlipRate(:, i, j+1, kt)+(1d0-KMalpha)*KMbeta*KMgamma*EQN%KMSlipRate(:, i, j+1, kt+1) +&
                        KMalpha*(1d0-KMbeta)*(1d0-KMgamma)*EQN%KMSlipRate(:, i+1, j, kt)+KMalpha*(1d0-KMbeta)*KMgamma*EQN%KMSlipRate(:, i+1, j, kt+1) +&
                        KMalpha*KMbeta*(1d0-KMgamma)*EQN%KMSlipRate(:, i+1, j+1, kt)+KMalpha*KMbeta*KMgamma*EQN%KMSlipRate(:, i+1, j+1, kt+1)
          ! 1 =  cos1 * StrikeSlip + sin1* DipSlip
          ! 2 = -sin1 * StrikeSlip + cos1* DipSlip
-         InterpSR(0) = EQN%KMcs(iFace,1) * InterpSR(0) 
-         InterpSR(1) = EQN%KMcs(iFace,2) * InterpSR(1) 
+         InterpSR(1) = EQN%KMcs(iFace,1) * InterpSR_strdip(1)
+         InterpSR(2) = EQN%KMcs(iFace,2) * InterpSR_strdip(1)
       ELSE
          InterpSR(:) = 0
       ENDIF
