@@ -1222,6 +1222,7 @@ MODULE TypesDef
      real, allocatable                      :: KMSlipRate(:,:,:,:)
      INTEGER, allocatable                   :: KMij(:,:,:)
      real, allocatable                      :: KMab(:,:,:)
+     real, allocatable                      :: KMcs(:,:)
      real                                   :: KMdt
      INTEGER                                :: KMndt
      REAL, allocatable                      :: IniMu(:,:)                       !< Initial friction coefficient at fault

@@ -4650,6 +4650,7 @@ MODULE ini_model_DR_mod
   REAL                           :: xV(MESH%GlobalVrtxType),yV(MESH%GlobalVrtxType),zV(MESH%GlobalVrtxType)
   REAL                           :: chi,tau
   REAL                           :: xi, eta, zeta, XGp, YGp, ZGp
+  REAL                           :: cos1, sin1, scalarprod
   real                           :: dip_vector(3),strike_vector(3), crossprod(3)
   real                           :: NormalVect_n(3), NormalVect_s(3), NormalVect_t(3)
   REAL                           :: KMdt,KMds,KMdd,KMx0,KMy0,KMz0
@@ -4704,8 +4705,10 @@ MODULE ini_model_DR_mod
 
   allocate(EQN%KMij(DISC%Galerkin%nBndGP,MESH%Fault%nSide,2))
   allocate(EQN%KMab(DISC%Galerkin%nBndGP,MESH%Fault%nSide,2))
+  allocate(EQN%KMcs(MESH%Fault%nSide,2))
   EQN%KMij(:,:,:)=0
   EQN%KMab(:,:,:)=0d0
+  EQN%KMcs(:,:)=0d0
 
     ! Compute strike and dip vector: moved outside the loop for this planar fault
     i=1
@@ -4782,11 +4785,11 @@ MODULE ini_model_DR_mod
              stop
           ENDIF
           IF ((KMi.LE.0).OR.(KMi.GT.KMnRows)) THEN
-             logError(*) 'problem detected: KMi not in range 0..KMnRows', KMi, KMnRows
+             logError(*) 'problem detected: KMi not in range 0..KMnRows', KMi, KMnRows, xGP, yGP, zGP, dip_vector(:)
              stop
           ENDIF
           IF ((KMj.LE.0).OR.(KMj.GT.KMnColumns)) THEN
-             logError(*) 'problem detected: KMj not in range 0..KMnColumns', KMj, KMnColumns
+             logError(*) 'problem detected: KMj not in range 0..KMnColumns', KMj, KMnColumns,xGP, yGP, zGP, strike_vector(:)
              stop
           ENDIF
           XX0_normal = abs((xGP-KMx0)*NormalVect_n(1) + (yGP-KMy0)*NormalVect_n(2) + (zGP-KMz0)*NormalVect_n(3))
@@ -4794,8 +4797,32 @@ MODULE ini_model_DR_mod
              logError(*) 'problem detected: P(x,y,z) to far from the fault',xGP,yGP,zGP,XX0_normal
              stop
           ENDIF
+      ENDDO ! iBndGP
 
-      ENDDO ! iBndGP          
+      !compute cos and sin to project from strike,dip,rake to fault CS
+      ! n,strike,dip -> XYZ -> fault CS
+      NormalVect_n = MESH%Fault%geoNormals(1:3,i)
+      NormalVect_s = MESH%Fault%geoTangent1(1:3,i)
+      NormalVect_t = MESH%Fault%geoTangent2(1:3,i)
+
+      strike_vector(1) = NormalVect_n(2)/sqrt(NormalVect_n(1)**2+NormalVect_n(2)**2)
+      strike_vector(2) = -NormalVect_n(1)/sqrt(NormalVect_n(1)**2+NormalVect_n(2)**2)
+      strike_vector(3) = 0.0D0
+      dip_vector = NormalVect_n .x. strike_vector
+      dip_vector = dip_vector / sqrt(dip_vector(1)**2+dip_vector(2)**2+dip_vector(3)**2)
+
+      cos1 = dot_product(strike_vector(:),NormalVect_s(:))
+      crossprod(:) = strike_vector(:) .x. NormalVect_s(:)
+      scalarprod = dot_product(crossprod(:),NormalVect_n(:))
+      !TU 2.11.15 :cos1**2 can be greater than 1 because of rounding errors -> min
+      IF (scalarprod.GT.0) THEN
+         sin1=sqrt(1-min(1d0,cos1**2))
+      ELSE
+         sin1=-sqrt(1-min(1d0,cos1**2))
+      ENDIF
+      EQN%KMcs(i,1) = cos1
+      EQN%KMcs(i,2) = -sin1
+         
   ENDDO !    MESH%Fault%nSide
   DISC%DynRup%cohesion = -1e40
                    

@@ -64,6 +64,7 @@ MODULE Eval_friction_law_mod
   PRIVATE :: Linear_slip_weakening_bimaterial
   PRIVATE :: Linear_slip_weakening_TPV1617
   PRIVATE :: StressFromSlip
+  PRIVATE :: StressFromSlipSIV
   PRIVATE :: rate_and_state
   PRIVATE :: rate_and_state_vw
   PRIVATE :: rate_and_state_nuc101
@@ -896,6 +897,10 @@ MODULE Eval_friction_law_mod
                        (1d0-KMalpha)*KMbeta*(1d0-KMgamma)*EQN%KMSlipRate(:, i, j+1, kt)+(1d0-KMalpha)*KMbeta*KMgamma*EQN%KMSlipRate(:, i, j+1, kt+1) +&
                        KMalpha*(1d0-KMbeta)*(1d0-KMgamma)*EQN%KMSlipRate(:, i+1, j, kt)+KMalpha*(1d0-KMbeta)*KMgamma*EQN%KMSlipRate(:, i+1, j, kt+1) +&
                        KMalpha*KMbeta*(1d0-KMgamma)*EQN%KMSlipRate(:, i+1, j+1, kt)+KMalpha*KMbeta*KMgamma*EQN%KMSlipRate(:, i+1, j+1, kt+1)
+         ! 1 =  cos1 * StrikeSlip + sin1* DipSlip
+         ! 2 = -sin1 * StrikeSlip + cos1* DipSlip
+         InterpSR(0) = EQN%KMcs(iFace,1) * InterpSR(0) 
+         InterpSR(1) = EQN%KMcs(iFace,2) * InterpSR(1) 
       ELSE
          InterpSR(:) = 0
       ENDIF
