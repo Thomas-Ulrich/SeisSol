@@ -910,8 +910,8 @@ MODULE Eval_friction_law_mod
       LocTracXZ(:) =  XZStressGP(:,iTimeGP) + eta * InterpSR(2)
 
       ! Update slip rate (notice that LocSR(T=0)=-2c_s/mu*s_xy^{Godunov} is the slip rate caused by a free surface!)
-      DISC%DynRup%SlipRate1(:,iFace)     = EQN%NucleationStressInFaultCS(:,1,iFace)*Gnuc
-      DISC%DynRup%SlipRate2(:,iFace)     = EQN%NucleationStressInFaultCS(:,2,iFace)*Gnuc
+      DISC%DynRup%SlipRate1(:,iFace)     = InterpSR(1)
+      DISC%DynRup%SlipRate2(:,iFace)     = InterpSR(2)
       LocSR                              = SQRT(DISC%DynRup%SlipRate1(:,iFace)**2 + DISC%DynRup%SlipRate2(:,iFace)**2)
       
       ! Update slip
