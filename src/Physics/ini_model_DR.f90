@@ -1946,7 +1946,7 @@ MODULE ini_model_DR_mod
   REAL                           :: strike_rad, dip_rad, rake_rad, rake
   REAL                           :: c2,s2,Phi,c2bis,mu_dy,mu_st
   REAL                           :: ds, sm, phi_xyz,c,s, alpha
-  REAL                           :: sii(3), Stress(3,3), R1(3,3), R2(3,3), R3(3,3), Stress_cartesian_norm(3,3)
+  REAL                           :: sii(3), Stress(3,3), R0(3,3), R1(3,3), R2(3,3), R3(3,3), Stress_cartesian_norm(3,3)
   REAL                           :: bii(6),P,s2ratio
   REAL, PARAMETER                :: pi = 3.141592653589793d0
   INTENT(IN)    :: strike, dip, sigmazz, cohesion, R
@@ -4801,6 +4801,9 @@ MODULE ini_model_DR_mod
 
       !compute cos and sin to project from strike,dip,rake to fault CS
       ! n,strike,dip -> XYZ -> fault CS
+      NormalVect_n = MESH%Fault%geoNormals(1:3,i)
+      NormalVect_s = MESH%Fault%geoTangent1(1:3,i)
+      NormalVect_t = MESH%Fault%geoTangent2(1:3,i)
 
       cos1 = dot_product(strike_vector(:),NormalVect_s(:))
       crossprod(:) = strike_vector(:) .x. NormalVect_s(:)
