@@ -863,7 +863,7 @@ MODULE Eval_friction_law_mod
     REAL        :: t_0, Tnuc, Gnuc, Gnucprev, dt, prevtime
     REAL        :: f1(nBndGP), f2(nBndGP)
     real        :: tn, eta
-    real        :: KMalpha,KMbeta, KMgamma,InterpSR(2),InterpSR_strdip(2)
+    real        :: KMalpha,KMbeta, KMgamma,InterpSR(nBndGP, 2),InterpSR_strdip(nBndGP, 2)
     integer     :: i,j,kt
     !-------------------------------------------------------------------------!
     INTENT(IN)    :: NorStressGP,XYStressGP,XZStressGP,iFace,iSide,iElem
@@ -879,10 +879,6 @@ MODULE Eval_friction_law_mod
     
     dt = sum(DeltaT(:))
     
-    i = EQN%KMij(iBndGP,iFace,1)
-    j = EQN%KMij(iBndGP,iFace,2)
-    KMalpha =EQN%KMab(iBndGP,iFace,1)
-    KMbeta =EQN%KMab(iBndGP,iFace,2)
 
     do iTimeGP=1,nTimeGP
       time_inc = DeltaT(iTimeGP)
@@ -891,27 +887,33 @@ MODULE Eval_friction_law_mod
       IF (time.LE.((EQN%KMndt-1)*EQN%KMdt)) THEN
          KMgamma = time - float(floor(time/EQN%KMdt))*EQN%KMdt
          kt = floor(time/EQN%KMdt)+1
+         DO iBndGP=1,nBndGP
+           i = EQN%KMij(iBndGP,iFace,1)
+           j = EQN%KMij(iBndGP,iFace,2)
+           KMalpha =EQN%KMab(iBndGP,iFace,1)
+           KMbeta =EQN%KMab(iBndGP,iFace,2)
 
          !interpolate SR in space and time
-         InterpSR_strdip(:) = (1d0-KMalpha)*(1d0-KMbeta)*(1d0-KMgamma)*EQN%KMSlipRate(:, i, j, kt)+(1d0-KMalpha)*(1d0-KMbeta)* KMgamma*EQN%KMSlipRate(:, i, j, kt+1) +&
+         InterpSR_strdip(iBndGP, :) = (1d0-KMalpha)*(1d0-KMbeta)*(1d0-KMgamma)*EQN%KMSlipRate(:, i, j, kt)+(1d0-KMalpha)*(1d0-KMbeta)* KMgamma*EQN%KMSlipRate(:, i, j, kt+1) +&
                        (1d0-KMalpha)*KMbeta*(1d0-KMgamma)*EQN%KMSlipRate(:, i, j+1, kt)+(1d0-KMalpha)*KMbeta*KMgamma*EQN%KMSlipRate(:, i, j+1, kt+1) +&
                        KMalpha*(1d0-KMbeta)*(1d0-KMgamma)*EQN%KMSlipRate(:, i+1, j, kt)+KMalpha*(1d0-KMbeta)*KMgamma*EQN%KMSlipRate(:, i+1, j, kt+1) +&
                        KMalpha*KMbeta*(1d0-KMgamma)*EQN%KMSlipRate(:, i+1, j+1, kt)+KMalpha*KMbeta*KMgamma*EQN%KMSlipRate(:, i+1, j+1, kt+1)
+         ENDDO
          ! 1 =  cos1 * StrikeSlip + sin1* DipSlip
          ! 2 = -sin1 * StrikeSlip + cos1* DipSlip
-         InterpSR(1) = EQN%KMcs(iFace,1) * InterpSR_strdip(1)
-         InterpSR(2) = EQN%KMcs(iFace,2) * InterpSR_strdip(1)
+         InterpSR(:,1) = EQN%KMcs(iFace,1) * InterpSR_strdip(:,1)
+         InterpSR(:,2) = EQN%KMcs(iFace,2) * InterpSR_strdip(:,1)
       ELSE
-         InterpSR(:) = 0
+         InterpSR(:,:) = 0
       ENDIF
 
       !EQN%NucleationStressInFaultCS (1 and 2) contains the slip in FaultCS
-      LocTracXY(:)  = XYStressGP(:,iTimeGP) + eta * InterpSR(1)
-      LocTracXZ(:) =  XZStressGP(:,iTimeGP) + eta * InterpSR(2)
+      LocTracXY(:)  = XYStressGP(:,iTimeGP) + eta * InterpSR(:,1)
+      LocTracXZ(:) =  XZStressGP(:,iTimeGP) + eta * InterpSR(:,2)
 
       ! Update slip rate (notice that LocSR(T=0)=-2c_s/mu*s_xy^{Godunov} is the slip rate caused by a free surface!)
-      DISC%DynRup%SlipRate1(:,iFace)     = InterpSR(1)
-      DISC%DynRup%SlipRate2(:,iFace)     = InterpSR(2)
+      DISC%DynRup%SlipRate1(:,iFace)     = InterpSR(:,1)
+      DISC%DynRup%SlipRate2(:,iFace)     = InterpSR(:,2)
       LocSR                              = SQRT(DISC%DynRup%SlipRate1(:,iFace)**2 + DISC%DynRup%SlipRate2(:,iFace)**2)
       
       ! Update slip
