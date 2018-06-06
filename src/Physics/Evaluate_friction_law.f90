@@ -901,8 +901,8 @@ MODULE Eval_friction_law_mod
          ENDDO
          ! 1 =  cos1 * StrikeSlip + sin1* DipSlip
          ! 2 = -sin1 * StrikeSlip + cos1* DipSlip
-         InterpSR(:,1) = EQN%KMcs(iFace,1) * InterpSR_strdip(:,1)
-         InterpSR(:,2) = EQN%KMcs(iFace,2) * InterpSR_strdip(:,1)
+         InterpSR(:,1) = EQN%KMcs(iFace,1) * InterpSR_strdip(:,1) + EQN%KMcs(iFace,2) * InterpSR_strdip(:,2)
+         InterpSR(:,2) = -EQN%KMcs(iFace,2) * InterpSR_strdip(:,1) + EQN%KMcs(iFace,1) * InterpSR_strdip(:,2)
       ELSE
          InterpSR(:,:) = 0
       ENDIF

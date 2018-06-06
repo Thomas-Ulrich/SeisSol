@@ -4812,7 +4812,7 @@ MODULE ini_model_DR_mod
          sin1=-sqrt(1-min(1d0,cos1**2))
       ENDIF
       EQN%KMcs(i,1) = cos1
-      EQN%KMcs(i,2) = -sin1
+      EQN%KMcs(i,2) = sin1
          
   ENDDO !    MESH%Fault%nSide
   DISC%DynRup%cohesion = -1e40
