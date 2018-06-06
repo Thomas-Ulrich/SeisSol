@@ -426,15 +426,11 @@ CONTAINS
                              (1d0-KMalpha)*KMbeta*(1d0-KMgamma)*EQN%KMSlipRate(:, i, j+1, kt)+(1d0-KMalpha)*KMbeta*KMgamma*EQN%KMSlipRate(:, i, j+1, kt+1) +&
                              KMalpha*(1d0-KMbeta)*(1d0-KMgamma)*EQN%KMSlipRate(:, i+1, j, kt)+KMalpha*(1d0-KMbeta)*KMgamma*EQN%KMSlipRate(:, i+1, j, kt+1) +&
                              KMalpha*KMbeta*(1d0-KMgamma)*EQN%KMSlipRate(:, i+1, j+1, kt)+KMalpha*KMbeta*KMgamma*EQN%KMSlipRate(:, i+1, j+1, kt+1)
-               ! 1 =  cos1 * StrikeSlip + sin1* DipSlip
-               ! 2 = -sin1 * StrikeSlip + cos1* DipSlip
-               InterpSR(1) = EQN%KMcs(iFace,1) * InterpSR_strdip(1)
-               InterpSR(2) = EQN%KMcs(iFace,2) * InterpSR_strdip(1)
             ELSE
-               InterpSR(:) = 0
+               InterpSR_strdip(:) = 0
             ENDIF
-              S_XY = S_XY + eta * InterpSR(1)
-              S_XZ = S_XZ + eta * InterpSR(2)
+              S_XY = S_XY + eta * InterpSR_strdip(1)
+              S_XZ = S_XZ + eta * InterpSR_strdip(2)
           endif
 
           !
@@ -545,6 +541,10 @@ CONTAINS
           if (DISC%DynRup%SlipRateOutputType .eq. 1) then
             LocSRs = -(1.0D0/(w_speed(2)*rho)+1.0D0/(w_speed_neig(2)*rho_neig))*(TracMat(4)-LocMat(4))
             LocSRd = -(1.0D0/(w_speed(2)*rho)+1.0D0/(w_speed_neig(2)*rho_neig))*(TracMat(6)-LocMat(6))
+            if (EQN%FL.eq.331) then
+               LocSRs = InterpSR_strdip(1)
+               LocSRd = InterpSR_strdip(2)
+            endif
           else
             LocSRs = dot_product(SideVal2(8) * NormalVect_s + SideVal2(9) * NormalVect_t, strike_vector) - dot_product(SideVal(8) * NormalVect_s + SideVal(9) * NormalVect_t, strike_vector)
             LocSRd = dot_product(SideVal2(8) * NormalVect_s + SideVal2(9) * NormalVect_t, dip_vector   ) - dot_product(SideVal(8) * NormalVect_s + SideVal(9) * NormalVect_t, dip_vector   )
