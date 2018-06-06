@@ -4698,7 +4698,7 @@ MODULE ini_model_DR_mod
    call  checkNcError(nf90_inq_varid(ncid, "DipSlipRate", varid))
    call  checkNcError(nf90_get_var(ncid, varid, EQN%KMSlipRate(2,1:KMnRows,1:KMnColumns,1:KMndt)))
    call  checkNcError(nf90_close(ncid))
-   !logError(*) 'StrikeSlipRate, DipSlipRate', EQN%KMSlipRate(1,100,10,2), EQN%KMSlipRate(2,100,10,2)
+   !logError(*) 'StrikeSlipRate, DipSlipRate', EQN%KMSlipRate(1, 30,100,50), EQN%KMSlipRate(2, 30,100,50), maxval(EQN%KMSlipRate(1,:,:,:)),maxval(EQN%KMSlipRate(2,:,:,:))
 
   EQN%KMndt=KMndt
   EQN%KMdt=KMdt
@@ -4710,19 +4710,20 @@ MODULE ini_model_DR_mod
   EQN%KMab(:,:,:)=0d0
   EQN%KMcs(:,:)=0d0
 
-    ! Compute strike and dip vector: moved outside the loop for this planar fault
-    i=1
-    NormalVect_n = MESH%Fault%geoNormals(1:3,i)
-    NormalVect_s = MESH%Fault%geoTangent1(1:3,i)
-    NormalVect_t = MESH%Fault%geoTangent2(1:3,i)
 
-    strike_vector(1) = NormalVect_n(2)/sqrt(NormalVect_n(1)**2+NormalVect_n(2)**2)
-    strike_vector(2) = -NormalVect_n(1)/sqrt(NormalVect_n(1)**2+NormalVect_n(2)**2)
-    strike_vector(3) = 0.0D0
-    dip_vector = NormalVect_n .x. strike_vector
-    dip_vector = dip_vector / sqrt(dip_vector(1)**2+dip_vector(2)**2+dip_vector(3)**2)
 
   DO i = 1, MESH%Fault%nSide
+      ! Compute strike and dip vector
+      NormalVect_n = MESH%Fault%geoNormals(1:3,i)
+      NormalVect_s = MESH%Fault%geoTangent1(1:3,i)
+      NormalVect_t = MESH%Fault%geoTangent2(1:3,i)
+
+      strike_vector(1) = NormalVect_n(2)/sqrt(NormalVect_n(1)**2+NormalVect_n(2)**2)
+      strike_vector(2) = -NormalVect_n(1)/sqrt(NormalVect_n(1)**2+NormalVect_n(2)**2)
+      strike_vector(3) = 0.0D0
+      dip_vector = NormalVect_n .x. strike_vector
+      dip_vector = dip_vector / sqrt(dip_vector(1)**2+dip_vector(2)**2+dip_vector(3)**2)
+
       !probably not necessary
       EQN%IniBulk_xx(i,:)  =  EQN%Bulk_xx_0
       EQN%IniBulk_yy(i,:)  =  EQN%Bulk_yy_0
@@ -4766,13 +4767,13 @@ MODULE ini_model_DR_mod
           !scalar product of x0x and dip_vector
           KMidouble = ((xGP-KMx0)*dip_vector(1) + (yGP-KMy0)*dip_vector(2) + (zGP-KMz0)*dip_vector(3))/KMdd
           KMi = floor(KMidouble)
-          KMalpha = KMidouble - KMi
+          KMalpha = KMidouble - float(KMi)
           KMi = KMi+1
 
           !scalar product of x0x and strike_vector
           KMjdouble = ((xGP-KMx0)*strike_vector(1) + (yGP-KMy0)*strike_vector(2))/KMds
           KMj = floor(KMjdouble)
-          KMbeta = KMjdouble - KMj
+          KMbeta = KMjdouble - float(KMj)
           KMj = KMj+1
 
           EQN%KMij(iBndGP,i,1) = KMi
@@ -4801,10 +4802,6 @@ MODULE ini_model_DR_mod
 
       !compute cos and sin to project from strike,dip,rake to fault CS
       ! n,strike,dip -> XYZ -> fault CS
-      NormalVect_n = MESH%Fault%geoNormals(1:3,i)
-      NormalVect_s = MESH%Fault%geoTangent1(1:3,i)
-      NormalVect_t = MESH%Fault%geoTangent2(1:3,i)
-
       cos1 = dot_product(strike_vector(:),NormalVect_s(:))
       crossprod(:) = strike_vector(:) .x. NormalVect_s(:)
       scalarprod = dot_product(crossprod(:),NormalVect_n(:))

@@ -889,7 +889,7 @@ MODULE Eval_friction_law_mod
 
       !find current timestep in the Kinematic model
       IF (time.LE.((EQN%KMndt-1)*EQN%KMdt)) THEN
-         KMgamma = time - floor(time/EQN%KMdt)*EQN%KMdt
+         KMgamma = time - float(floor(time/EQN%KMdt))*EQN%KMdt
          kt = floor(time/EQN%KMdt)+1
 
          !interpolate SR in space and time
