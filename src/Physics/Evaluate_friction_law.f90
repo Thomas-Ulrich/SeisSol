@@ -2639,8 +2639,8 @@ MODULE Eval_friction_law_mod
       Strength = -DISC%DynRup%cohesion(:,iFace) - DISC%DynRup%Mu(:,iFace) * MIN(P,ZERO)      
       ShTest = SQRT((EQN%InitialStressInFaultCS(:,4,iFace) + XYStressGP(:,iTimeGP))**2 + (EQN%InitialStressInFaultCS(:,6,iFace) + XZStressGP(:,iTimeGP))**2)
 
-!~       LocSR = MAX(0d0, (ShTest - Strength) / eta)
-      LocSR = matmul(filter,MAX(0d0, (ShTest - Strength) / eta))
+      LocSR = MAX(0d0, (ShTest - Strength) / eta)
+      !LocSR = matmul(filter,MAX(0d0, (ShTest - Strength) / eta))
 
       LocSR1 = LocSR / (eta * LocSR + Strength) * (EQN%InitialStressInFaultCS(:,4,iFace) + XYStressGP(:,iTimeGP))
       LocSR2 = LocSR / (eta * LocSR + Strength) * (EQN%InitialStressInFaultCS(:,6,iFace) + XZStressGP(:,iTimeGP))
@@ -2672,10 +2672,10 @@ MODULE Eval_friction_law_mod
         tn=tn + time_inc
 
         ! Update slip
-        DISC%DynRup%Slip1(:,iFace) = DISC%DynRup%Slip1(:,iFace) + DISC%DynRup%SlipRate1(:,iFace)*time_inc
-        DISC%DynRup%Slip2(:,iFace) = DISC%DynRup%Slip2(:,iFace) + DISC%DynRup%SlipRate2(:,iFace)*time_inc
-        DISC%DynRup%Slip(:,iFace)  = DISC%DynRup%Slip(:,iFace)  + LocSR*time_inc
-!~         DISC%DynRup%Slip(:,iFace)  = DISC%DynRup%Slip(:,iFace)  + matmul(filter,LocSR)*time_inc
+        DISC%DynRup%Slip1(:,iFace) = DISC%DynRup%Slip1(:,iFace) + matmul(filter,DISC%DynRup%SlipRate1(:,iFace))*time_inc
+        DISC%DynRup%Slip2(:,iFace) = DISC%DynRup%Slip2(:,iFace) + matmul(filter,DISC%DynRup%SlipRate2(:,iFace))*time_inc
+        !DISC%DynRup%Slip(:,iFace)  = DISC%DynRup%Slip(:,iFace)  + LocSR*time_inc
+        DISC%DynRup%Slip(:,iFace)  = DISC%DynRup%Slip(:,iFace)  + matmul(filter,LocSR)*time_inc
         tmpSlip = tmpSlip(:) + LocSR(:)*time_inc
       end if
 
