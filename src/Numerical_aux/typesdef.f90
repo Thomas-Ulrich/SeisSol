@@ -747,6 +747,7 @@ MODULE TypesDef
      REAL, allocatable                      :: forced_rupture_time(:,:)        !< forced rupture time at given fault node
      REAL, allocatable                      :: rupture_time(:,:)               !< rupture time at given fault node> used for VR ouput calculation
      REAL, allocatable                      :: dynStress_time(:,:)             !< time at which the shear stress is equal the dynamic stress
+     REAL, allocatable                      :: filter(:,:)                       !< filter matrix to project the SR into the modal basis functions
      REAL                                   :: t_0                              !< forced rupture decay time
      REAL, ALLOCATABLE                      :: BndBF_GP_Tet(:,:,:)              !< Basis functions of '-' element at fault surface with matching GP (nDegFr,nBndGP,nSide)
      REAL, ALLOCATABLE                      :: FluxInt(:,:,:)                   !< corresponding flux integration matrix (nDegFr,nDegFr,nSide))
