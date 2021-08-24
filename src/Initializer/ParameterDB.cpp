@@ -85,7 +85,7 @@ easi::Query seissol::initializers::ElementBarycentreGeneratorPUML::generate() co
   std::vector<PUML::TETPUML::cell_t> const& cells = m_mesh.cells();
   std::vector<PUML::TETPUML::vertex_t> const& vertices = m_mesh.vertices();
 
-  int const* material = m_mesh.cellData(0);
+  int64_t const* material = m_mesh.cellData(0);
   
   easi::Query query(cells.size(), 3);
   for (unsigned cell = 0; cell < cells.size(); ++cell) {

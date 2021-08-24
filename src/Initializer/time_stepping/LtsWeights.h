@@ -78,7 +78,7 @@ private:
                   double    globalMinTimestep,
                   unsigned  rate  );
 
-  int getBoundaryCondition( int const* boundaryCond,
+  int64_t getBoundaryCondition( int64_t const* boundaryCond,
                             unsigned cell,
                             unsigned face );
                         

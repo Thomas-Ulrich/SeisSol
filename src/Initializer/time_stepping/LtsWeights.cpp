@@ -120,10 +120,10 @@ int seissol::initializers::time_stepping::LtsWeights::getCluster( double    time
   return cluster;
 }
 
-int seissol::initializers::time_stepping::LtsWeights::getBoundaryCondition( int const* boundaryCond,
+int64_t seissol::initializers::time_stepping::LtsWeights::getBoundaryCondition( int64_t const* boundaryCond,
                                                                             unsigned cell,
                                                                             unsigned face ) {
-  int bcCurrentFace = ((boundaryCond[cell] >> (face*8)) & 0xFF);
+  int64_t bcCurrentFace = ((boundaryCond[cell] >> (face*16)) & 0xFFFF);
   if (bcCurrentFace > 64) {
      bcCurrentFace = 3;
   }
@@ -147,7 +147,7 @@ void seissol::initializers::time_stepping::LtsWeights::computeWeights(PUML::TETP
   logInfo(seissol::MPI::mpi.rank()) << "Computing LTS weights.";
 
   std::vector<PUML::TETPUML::cell_t> const& cells = mesh.cells();
-  int const* boundaryCond = mesh.cellData(1);
+  int64_t const* boundaryCond = mesh.cellData(1);
 
   std::vector<double> pWaveVel;
   pWaveVel.resize(cells.size());
@@ -169,7 +169,7 @@ void seissol::initializers::time_stepping::LtsWeights::computeWeights(PUML::TETP
   std::vector<double> timestep;
   timestep.resize(cells.size());
   computeMaxTimesteps(mesh, pWaveVel, timestep);
-
+  logInfo(seissol::MPI::mpi.rank()) << "After drToCellRatio"; 
   double localMinTimestep = *std::min_element(timestep.begin(), timestep.end());
   double localMaxTimestep = *std::max_element(timestep.begin(), timestep.end());
   double globalMinTimestep;
@@ -188,7 +188,6 @@ void seissol::initializers::time_stepping::LtsWeights::computeWeights(PUML::TETP
   } 
   
   int totalNumberOfReductions = enforceMaximumDifference(mesh, cluster);
-
   delete[] m_vertexWeights;
   //m_ncon = 2;
   m_ncon = 1;
@@ -196,7 +195,7 @@ void seissol::initializers::time_stepping::LtsWeights::computeWeights(PUML::TETP
   int maxCluster = getCluster(globalMaxTimestep, globalMinTimestep, m_rate);
   int drToCellRatio = 1;
   for (unsigned cell = 0; cell < cells.size(); ++cell) {    
-    int dynamicRupture = 0;
+    int64_t dynamicRupture = 0;
     for (unsigned face = 0; face < 4; ++face) {
       dynamicRupture += ( getBoundaryCondition(boundaryCond, cell, face) == 3) ? 1 : 0;
     }
@@ -231,7 +230,7 @@ int seissol::initializers::time_stepping::LtsWeights::enforceMaximumDifferenceLo
   
   std::vector<PUML::TETPUML::cell_t> const& cells = mesh.cells();
   std::vector<PUML::TETPUML::face_t> const& faces = mesh.faces();
-	int const* boundaryCond = mesh.cellData(1);
+	int64_t const* boundaryCond = mesh.cellData(1);
 
 #ifdef USE_MPI
   std::unordered_map<int, std::vector<int>> rankToSharedFaces;
@@ -245,7 +244,7 @@ int seissol::initializers::time_stepping::LtsWeights::enforceMaximumDifferenceLo
 		PUML::Downward::faces(mesh, cells[cell], faceids);
     for (unsigned f = 0; f < 4; ++f) {
       int difference = maxDifference;
-      int boundary = getBoundaryCondition(boundaryCond, cell, f);
+      int64_t boundary = getBoundaryCondition(boundaryCond, cell, f);
       // Continue for regular, dynamic rupture, and periodic boundary cells
       if (boundary == 0 || boundary == 3 || boundary == 6) {
         // We treat MPI neighbours later
@@ -320,7 +319,7 @@ int seissol::initializers::time_stepping::LtsWeights::enforceMaximumDifferenceLo
       for (; f < 4 && static_cast<int>(faceids[f]) != exchange->second[n]; ++f);
       assert(f != 4);
       
-      int boundary = getBoundaryCondition(boundaryCond, cell, f);
+      int64_t boundary = getBoundaryCondition(boundaryCond, cell, f);
       if (boundary == 3) {
         difference = 0;
       }
