@@ -120,10 +120,10 @@ int seissol::initializers::time_stepping::LtsWeights::getCluster( double    time
   return cluster;
 }
 
-int64_t seissol::initializers::time_stepping::LtsWeights::getBoundaryCondition( int64_t const* boundaryCond,
+int seissol::initializers::time_stepping::LtsWeights::getBoundaryCondition( int64_t const* boundaryCond,
                                                                             unsigned cell,
                                                                             unsigned face ) {
-  int64_t bcCurrentFace = ((boundaryCond[cell] >> (face*16)) & 0xFFFF);
+  int bcCurrentFace = ((boundaryCond[cell] >> (face*16)) & 0xFFFF);
   if (bcCurrentFace > 64) {
      bcCurrentFace = 3;
   }
@@ -196,7 +196,7 @@ void seissol::initializers::time_stepping::LtsWeights::computeWeights(PUML::TETP
   m_vertexWeights = new int[cells.size() * m_ncon];
   int maxCluster = getCluster(globalMaxTimestep, globalMinTimestep, m_rate);
   for (unsigned cell = 0; cell < cells.size(); ++cell) {
-    int64_t dynamicRupture = 0;
+    int dynamicRupture = 0;
     int freeSurface = 0;
 
     unsigned int faceids[4];
@@ -262,7 +262,7 @@ int seissol::initializers::time_stepping::LtsWeights::enforceMaximumDifferenceLo
 		PUML::Downward::faces(mesh, cells[cell], faceids);
     for (unsigned f = 0; f < 4; ++f) {
       int difference = maxDifference;
-      int64_t boundary = getBoundaryCondition(boundaryCond, cell, f);
+      int boundary = getBoundaryCondition(boundaryCond, cell, f);
       // Continue for regular, dynamic rupture, and periodic boundary cells
       if (boundary == 0 || boundary == 3 || boundary == 6) {
         // We treat MPI neighbours later
@@ -337,7 +337,7 @@ int seissol::initializers::time_stepping::LtsWeights::enforceMaximumDifferenceLo
       for (; f < 4 && static_cast<int>(faceids[f]) != exchange->second[n]; ++f);
       assert(f != 4);
       
-      int64_t boundary = getBoundaryCondition(boundaryCond, cell, f);
+      int boundary = getBoundaryCondition(boundaryCond, cell, f);
       if (boundary == 3) {
         difference = 0;
       }

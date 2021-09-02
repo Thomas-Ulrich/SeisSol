@@ -361,7 +361,7 @@ void seissol::PUMLReader::getMesh(const PUML::TETPUML &puml)
 				m_elements[i].neighborRanks[FACE_PUML2SEISSOL[j]] = rank;
 			}
 
-			int64_t bcCurrentFace = (boundaryCond[i] >> (j*16)) & 0xFFFF;
+			int bcCurrentFace = (boundaryCond[i] >> (j*16)) & 0xFFFF;
 			int faultTag = bcCurrentFace;
 			if (bcCurrentFace > 64) {
 				bcCurrentFace = 3;
@@ -371,7 +371,7 @@ void seissol::PUMLReader::getMesh(const PUML::TETPUML &puml)
 			m_elements[i].mpiIndices[FACE_PUML2SEISSOL[j]] = 0;
 		}
 
-		m_elements[i].material = material[i];
+		m_elements[i].material = static_cast<int> (material[i]);
 	}
 
 	// Exchange ghost layer information and generate neighbor list
