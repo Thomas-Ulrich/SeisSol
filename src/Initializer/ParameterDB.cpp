@@ -85,7 +85,7 @@ easi::Query seissol::initializers::ElementBarycentreGeneratorPUML::generate() co
   std::vector<PUML::TETPUML::cell_t> const& cells = m_mesh.cells();
   std::vector<PUML::TETPUML::vertex_t> const& vertices = m_mesh.vertices();
 
-  int64_t const* material = m_mesh.cellData(0);
+  int const* material = m_mesh.cellData(0);
   
   easi::Query query(cells.size(), 3);
   for (unsigned cell = 0; cell < cells.size(); ++cell) {
@@ -192,6 +192,20 @@ namespace seissol {
       adapter.addBindingPoint("lambda", &seissol::model::ViscoElasticMaterial::lambda);
       adapter.addBindingPoint("Qp", &seissol::model::ViscoElasticMaterial::Qp);
       adapter.addBindingPoint("Qs", &seissol::model::ViscoElasticMaterial::Qs);
+    }
+
+    template<>
+    void MaterialParameterDB<seissol::model::PoroElasticMaterial>::addBindingPoints(easi::ArrayOfStructsAdapter<seissol::model::PoroElasticMaterial> &adapter) {
+      adapter.addBindingPoint("bulk_solid", &seissol::model::PoroElasticMaterial::bulkSolid);
+      adapter.addBindingPoint("rho", &seissol::model::PoroElasticMaterial::rho);
+      adapter.addBindingPoint("lambda", &seissol::model::PoroElasticMaterial::lambda);
+      adapter.addBindingPoint("mu", &seissol::model::PoroElasticMaterial::mu);
+      adapter.addBindingPoint("porosity", &seissol::model::PoroElasticMaterial::porosity);
+      adapter.addBindingPoint("permeability", &seissol::model::PoroElasticMaterial::permeability);
+      adapter.addBindingPoint("tortuosity", &seissol::model::PoroElasticMaterial::tortuosity);
+      adapter.addBindingPoint("bulk_fluid", &seissol::model::PoroElasticMaterial::bulkFluid);
+      adapter.addBindingPoint("rho_fluid", &seissol::model::PoroElasticMaterial::rhoFluid);
+      adapter.addBindingPoint("viscosity", &seissol::model::PoroElasticMaterial::viscosity);
     }
 
     template<>
@@ -439,6 +453,7 @@ easi::Component* seissol::initializers::loadEasiModel(const std::string& fileNam
 template class seissol::initializers::MaterialParameterDB<seissol::model::AnisotropicMaterial>;
 template class seissol::initializers::MaterialParameterDB<seissol::model::ElasticMaterial>;
 template class seissol::initializers::MaterialParameterDB<seissol::model::ViscoElasticMaterial>;
+template class seissol::initializers::MaterialParameterDB<seissol::model::PoroElasticMaterial>;
 template class seissol::initializers::MaterialParameterDB<seissol::model::Plasticity>;
 
 

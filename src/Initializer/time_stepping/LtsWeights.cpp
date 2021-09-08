@@ -120,10 +120,10 @@ int seissol::initializers::time_stepping::LtsWeights::getCluster( double    time
   return cluster;
 }
 
-int seissol::initializers::time_stepping::LtsWeights::getBoundaryCondition( int64_t const* boundaryCond,
+int seissol::initializers::time_stepping::LtsWeights::getBoundaryCondition( int const* boundaryCond,
                                                                             unsigned cell,
                                                                             unsigned face ) {
-  int bcCurrentFace = ((boundaryCond[cell] >> (face*16)) & 0xFFFF);
+  int bcCurrentFace = ((boundaryCond[cell] >> (face*8)) & 0xFF);
   if (bcCurrentFace > 64) {
      bcCurrentFace = 3;
   }
@@ -148,7 +148,7 @@ void seissol::initializers::time_stepping::LtsWeights::computeWeights(PUML::TETP
 
   const auto& cells = mesh.cells();
   const auto& faces = mesh.faces();
-  int64_t const* boundaryCond = mesh.cellData(1);
+  int const* boundaryCond = mesh.cellData(1);
 
   std::vector<double> pWaveVel;
   pWaveVel.resize(cells.size());
@@ -158,6 +158,9 @@ void seissol::initializers::time_stepping::LtsWeights::computeWeights(PUML::TETP
 #ifdef USE_ANISOTROPIC
   std::vector<seissol::model::AnisotropicMaterial> materials(cells.size());
   seissol::initializers::MaterialParameterDB<seissol::model::AnisotropicMaterial> parameterDB;
+#elif defined(USE_POROELASTIC)
+  std::vector<seissol::model::PoroElasticMaterial> materials(cells.size());
+  seissol::initializers::MaterialParameterDB<seissol::model::PoroElasticMaterial> parameterDB;
 #else
   std::vector<seissol::model::ElasticMaterial> materials(cells.size());
   seissol::initializers::MaterialParameterDB<seissol::model::ElasticMaterial> parameterDB;
@@ -170,7 +173,7 @@ void seissol::initializers::time_stepping::LtsWeights::computeWeights(PUML::TETP
   std::vector<double> timestep;
   timestep.resize(cells.size());
   computeMaxTimesteps(mesh, pWaveVel, timestep);
-  
+
   double localMinTimestep = *std::min_element(timestep.begin(), timestep.end());
   double localMaxTimestep = *std::max_element(timestep.begin(), timestep.end());
   double globalMinTimestep;
@@ -209,8 +212,6 @@ void seissol::initializers::time_stepping::LtsWeights::computeWeights(PUML::TETP
       int cellIds[2];
       PUML::Upward::cells(mesh, faces[faceids[face]], cellIds);
 
-      int neighbourCell = (cellIds[0] == static_cast<int>(cell)) ? cellIds[1] : cellIds[0];
-
       if (faceType == FaceType::freeSurfaceGravity) {
         freeSurface++;
       }
@@ -248,7 +249,7 @@ int seissol::initializers::time_stepping::LtsWeights::enforceMaximumDifferenceLo
   
   std::vector<PUML::TETPUML::cell_t> const& cells = mesh.cells();
   std::vector<PUML::TETPUML::face_t> const& faces = mesh.faces();
-	int64_t const* boundaryCond = mesh.cellData(1);
+	int const* boundaryCond = mesh.cellData(1);
 
 #ifdef USE_MPI
   std::unordered_map<int, std::vector<int>> rankToSharedFaces;
@@ -317,7 +318,7 @@ int seissol::initializers::time_stepping::LtsWeights::enforceMaximumDifferenceLo
     MPI_Irecv(ghost[ex], exchangeSize, MPI_INT, exchange->first, 0, seissol::MPI::mpi.comm(), &requests[numExchanges + ex]);
     ++exchange;
   }
-  logInfo(seissol::MPI::mpi.rank()) << "./src/Initializer/time_stepping/LtsWeights.cpp:321"; 
+  
   MPI_Waitall(2*numExchanges, requests, MPI_STATUSES_IGNORE);
 
   exchange = rankToSharedFaces.begin();
