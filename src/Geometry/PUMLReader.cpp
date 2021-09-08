@@ -431,7 +431,7 @@ void seissol::PUMLReader::getMesh(const PUML::TETPUML &puml)
 			&requests[neighborInfo.size() * 3 + k]);
 	}
 	assert(t.size() == sum);
-
+    logInfo(seissol::MPI::mpi.rank()) << "./src/Geometry/PUMLReader.cpp:435";
 	MPI_Waitall(neighborInfo.size() * 4, requests, MPI_STATUSES_IGNORE);
 
 	k = 0;

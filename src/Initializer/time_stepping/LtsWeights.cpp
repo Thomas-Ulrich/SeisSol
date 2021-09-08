@@ -317,7 +317,7 @@ int seissol::initializers::time_stepping::LtsWeights::enforceMaximumDifferenceLo
     MPI_Irecv(ghost[ex], exchangeSize, MPI_INT, exchange->first, 0, seissol::MPI::mpi.comm(), &requests[numExchanges + ex]);
     ++exchange;
   }
-  
+  logInfo(seissol::MPI::mpi.rank()) << "./src/Initializer/time_stepping/LtsWeights.cpp:321"; 
   MPI_Waitall(2*numExchanges, requests, MPI_STATUSES_IGNORE);
 
   exchange = rankToSharedFaces.begin();
